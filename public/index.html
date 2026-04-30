@@ -489,7 +489,12 @@ async function doSearch() {
       renderTrainList(displayTrains, fromName, toName, date, withTickets.length > 0);
 
       showProgress('正在计算多策略方案...', 70);
-      await computeStrategies(currentTrains, fromCode, toCode, fromName, toName, date);
+      try {
+        await computeStrategies(currentTrains, fromCode, toCode, fromName, toName, date);
+      } catch (e) {
+        console.error('computeStrategies error:', e);
+        renderStrategies([]);
+      }
       showProgress('完成！', 100);
       setTimeout(hideProgress, 800);
     } else {
@@ -1043,71 +1048,77 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
   }
 
   // 3. 买长乘短 - 自动查询
-  showProgress('正在查询买长乘短方案...', 70);
-  const buyLongResults = await autoBuyLong(trains, fromCode, toCode, date);
-  if (buyLongResults.length) {
-    strategies.push({ name:'🎯 买长乘短（有票）', type:'buyLong', trains:buyLongResults.map(r=>r.train),
-      desc:`找到 ${buyLongResults.length} 个买长乘短方案，买到更远站点在${toName}下车`,
-      tip: buyLongResults.slice(0,5).map(r=>`${r.train.trainNo}: 买到${r.endStation}，在${toName}下车`).join('\n'),
-      priority:2 });
-  }
+  try {
+    showProgress('正在查询买长乘短方案...', 70);
+    const buyLongResults = await autoBuyLong(trains, fromCode, toCode, date);
+    if (buyLongResults.length) {
+      strategies.push({ name:'🎯 买长乘短（有票）', type:'buyLong', trains:buyLongResults.map(r=>r.train),
+        desc:`找到 ${buyLongResults.length} 个买长乘短方案，买到更远站点在${toName}下车`,
+        tip: buyLongResults.slice(0,5).map(r=>`${r.train.trainNo}: 买到${r.endStation}，在${toName}下车`).join('\n'),
+        priority:2 });
+    }
+  } catch (e) { console.error('BuyLong failed:', e); }
 
   // 4 & 5. 中转换乘 + 分段购票 - 共享同一次 /api/transfer 请求，避免重复调用导致限流
-  showProgress('正在搜索换乘/分段方案...', 80);
-  let transferApiData = [];
   try {
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
-    const data = await resp.json();
-    if (data.status === 0 && data.data) {
-      transferApiData = data.data;
+    showProgress('正在搜索换乘/分段方案...', 80);
+    let transferApiData = [];
+    try {
+      const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+      const data = await resp.json();
+      if (data.status === 0 && data.data) {
+        transferApiData = data.data;
+      }
+    } catch (e) {
+      console.error('Transfer API failed:', e);
     }
-  } catch (e) {
-    console.error('Transfer API failed:', e);
-  }
 
-  // 中转换乘
-  if (transferApiData.length) {
-    strategies.push({ name:'🔄 中转换乘（有票）', type:'transfer', trains:[],
-      desc:`找到 ${transferApiData.length} 个中转站，可自由搭配前后程`,
-      tip: transferApiData.map(r =>
-        `经${r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
-      ).join('\n'),
-      transferData: transferApiData,
-      priority:2.5 });
-  }
+    // 中转换乘
+    if (transferApiData.length) {
+      strategies.push({ name:'🔄 中转换乘（有票）', type:'transfer', trains:[],
+        desc:`找到 ${transferApiData.length} 个中转站，可自由搭配前后程`,
+        tip: transferApiData.map(r =>
+          `经${r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
+        ).join('\n'),
+        transferData: transferApiData,
+        priority:2.5 });
+    }
 
-  // 分段购票 - 复用同一次换乘数据
-  if (transferApiData.length) {
-    const segResults = transferApiData.map(function(r) {
-      return {
-        hub: r.hub,
-        hubCode: r.hubCode,
-        leg1Count: r.leg1Count,
-        leg2Count: r.leg2Count,
-        leg1: r.leg1,
-        leg2: r.leg2,
-        compatibility: r.compatibility,
-      };
-    });
-    strategies.push({ name:'✂️ 分段购票（有票）', type:'segmented', trains:[],
-      desc:`找到 ${segResults.length} 个分段点，可自由搭配前后程车票`,
-      tip: segResults.slice(0,3).map(r =>
-        `经${r.hub}分段：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
-      ).join('\n'),
-      segData: segResults,
-      priority:3 });
-  }
+    // 分段购票 - 复用同一次换乘数据
+    if (transferApiData.length) {
+      const segResults = transferApiData.map(function(r) {
+        return {
+          hub: r.hub,
+          hubCode: r.hubCode,
+          leg1Count: r.leg1Count,
+          leg2Count: r.leg2Count,
+          leg1: r.leg1,
+          leg2: r.leg2,
+          compatibility: r.compatibility,
+        };
+      });
+      strategies.push({ name:'✂️ 分段购票（有票）', type:'segmented', trains:[],
+        desc:`找到 ${segResults.length} 个分段点，可自由搭配前后程车票`,
+        tip: segResults.slice(0,3).map(r =>
+          `经${r.hub}分段：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
+        ).join('\n'),
+        segData: segResults,
+        priority:3 });
+    }
+  } catch (e) { console.error('Transfer/Segmented failed:', e); }
 
   // 6. 买短乘长 - 实际查询
-  showProgress('正在查询买短乘长方案...', 90);
-  const buyShortResults = await autoBuyShort(trains, fromCode, toCode, fromName, toName, date);
-  if (buyShortResults.length) {
-    strategies.push({ name:'📝 买短乘长（有票）', type:'buyShort', trains:buyShortResults.map(r=>r.train),
-      desc:`找到 ${buyShortResults.length} 个买短乘长方案，先买短途票上车再补票到${toName}`,
-      tip: buyShortResults.slice(0,5).map(r=>`${r.train.trainNo}: 买到${r.endStation}，补票到${toName}`).join('\n'),
-      buyShortData: buyShortResults,
-      priority:4 });
-  }
+  try {
+    showProgress('正在查询买短乘长方案...', 90);
+    const buyShortResults = await autoBuyShort(trains, fromCode, toCode, fromName, toName, date);
+    if (buyShortResults.length) {
+      strategies.push({ name:'📝 买短乘长（有票）', type:'buyShort', trains:buyShortResults.map(r=>r.train),
+        desc:`找到 ${buyShortResults.length} 个买短乘长方案，先买短途票上车再补票到${toName}`,
+        tip: buyShortResults.slice(0,5).map(r=>`${r.train.trainNo}: 买到${r.endStation}，补票到${toName}`).join('\n'),
+        buyShortData: buyShortResults,
+        priority:4 });
+    }
+  } catch (e) { console.error('BuyShort failed:', e); }
 
   strategies.sort((a,b) => a.priority - b.priority);
   renderStrategies(strategies);
@@ -1803,7 +1814,7 @@ function renderStrategies(strategies) {
       + '</div>'
       + '<div id="strat-body-'+idx+'">'
       + '<p style="color:var(--text2);font-size:.83em;margin:4px 0">'+s.desc+'</p>'
-      + '<div id="strat-card-'+idx+'">'+buildStrategyContent(idx, s)+'</div>'
+      + '<div id="strat-card-'+idx+'">'+(function(){ try { return buildStrategyContent(idx, s); } catch(e) { console.error('buildStrategyContent error:', e); return '<div class="tip-box">渲染出错，请刷新重试</div>'; } })()+'</div>'
       + '</div>'
       + '</div>';
   }).join('');
