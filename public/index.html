@@ -187,7 +187,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 <div class="container">
   <div class="header">
     <h1>🚂 车票路径规划器</h1>
-    <p>12306 实时数据 · 多策略购票方案 · 直达 / 买长乘短 / 分段购票 / 中转换乘 / 候补</p>
+    <p>12306 实时数据 · 多策略购票方案 · 直达 / 买长乘短 / 同车换乘 / 中转换乘 / 候补</p>
     <span class="badge-live">● 接入12306实时数据</span>
   </div>
 
@@ -1076,12 +1076,12 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
     }
   } catch (e) { console.error('Transfer failed:', e); }
 
-  // 5. 分段购票 - 同车分段（同一趟车在中间站拆分购票）
+  // 5. 同车换乘 - 同车分段（同一趟车在中间站拆分购票）
   try {
     showProgress('正在查询同车分段方案...', 85);
     const segResults = await searchSameTrainSegmented(trains, fromCode, toCode, fromName, toName, date);
     if (segResults.length) {
-      strategies.push({ name:'✂️ 分段购票（同车）', type:'segmented', trains:[],
+      strategies.push({ name:'✂️ 同车换乘（同车）', type:'segmented', trains:[],
         desc:`找到 ${segResults.length} 个同车分段方案，在中间站拆分购票`,
         tip: segResults.slice(0,5).map(r =>
           `${r.trainNo}: 经${r.midStation}分段，两段均有票`
@@ -1184,7 +1184,7 @@ function buildSameTrainSegRow(train, trainNo) {
   return row;
 }
 
-// 分段购票查询（旧版，保留兼容）
+// 同车换乘查询（旧版，保留兼容）
 async function searchSegmented(fromCode, toCode, fromName, toName, date) {
   try {
     const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
@@ -1210,7 +1210,7 @@ async function searchSegmented(fromCode, toCode, fromName, toName, date) {
   return [];
 }
 
-// ========== 分段购票查询（同车分段） ==========
+// ========== 同车换乘查询（同车分段） ==========
 async function searchSameTrainSegmented(trains, fromCode, toCode, fromName, toName, date) {
   const results = [];
   const seenTrains = new Set();
@@ -1490,7 +1490,7 @@ function buildStrategyContent(idx, s) {
     }
   }
 
-  // segmented - 同车分段购票
+  // segmented - 同车换乘
   if (s.segData && s.segData.length) {
     for (var si = 0; si < s.segData.length; si++) {
       var sr = s.segData[si];
@@ -1570,7 +1570,7 @@ function buildStrategyContent(idx, s) {
   return content;
 }
 
-// ========== 共享组件：左右双列面板（中转换乘 & 分段购票复用） ==========
+// ========== 共享组件：左右双列面板（中转换乘 & 同车换乘复用） ==========
 
 // 全局状态：每个 hubId 对应的选中 leg1/leg2 索引
 var _dualPanelState = {}; // { hubId: { leg1: displayIdx, leg2: displayIdx } }
@@ -1636,7 +1636,7 @@ function buildDualLegPanel(hubData, options) {
   return content;
 }
 
-// 构建排序后的左右双列面板（分段购票专用）
+// 构建排序后的左右双列面板（同车换乘专用）
 // sortedLeg1: 排序后的 leg1 数组
 // sortedOrigIndices: 排序后每个位置对应的原始索引（用于 compatibility 查询）
 function buildDualLegPanelSorted(hubData, sortedLeg1, sortedOrigIndices, options) {
