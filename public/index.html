@@ -1059,53 +1059,37 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
     }
   } catch (e) { console.error('BuyLong failed:', e); }
 
-  // 4 & 5. 中转换乘 + 分段购票 - 共享同一次 /api/transfer 请求，避免重复调用导致限流
+  // 4. 中转换乘 - 不同车次换乘
   try {
-    showProgress('正在搜索换乘/分段方案...', 80);
-    let transferApiData = [];
-    try {
-      const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
-      const data = await resp.json();
-      if (data.status === 0 && data.data) {
-        transferApiData = data.data;
-      }
-    } catch (e) {
-      console.error('Transfer API failed:', e);
-    }
-
-    // 中转换乘
-    if (transferApiData.length) {
+    showProgress('正在搜索中转换乘方案...', 80);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+    const data = await resp.json();
+    if (data.status === 0 && data.data && data.data.length) {
+      const transferResults = data.data;
       strategies.push({ name:'🔄 中转换乘（有票）', type:'transfer', trains:[],
-        desc:`找到 ${transferApiData.length} 个中转站，可自由搭配前后程`,
-        tip: transferApiData.map(r =>
+        desc:`找到 ${transferResults.length} 个中转站，可自由搭配前后程`,
+        tip: transferResults.map(r =>
           `经${r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
         ).join('\n'),
-        transferData: transferApiData,
+        transferData: transferResults,
         priority:2.5 });
     }
+  } catch (e) { console.error('Transfer failed:', e); }
 
-    // 分段购票 - 复用同一次换乘数据
-    if (transferApiData.length) {
-      const segResults = transferApiData.map(function(r) {
-        return {
-          hub: r.hub,
-          hubCode: r.hubCode,
-          leg1Count: r.leg1Count,
-          leg2Count: r.leg2Count,
-          leg1: r.leg1,
-          leg2: r.leg2,
-          compatibility: r.compatibility,
-        };
-      });
-      strategies.push({ name:'✂️ 分段购票（有票）', type:'segmented', trains:[],
-        desc:`找到 ${segResults.length} 个分段点，可自由搭配前后程车票`,
-        tip: segResults.slice(0,3).map(r =>
-          `经${r.hub}分段：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
+  // 5. 分段购票 - 同车分段（同一趟车在中间站拆分购票）
+  try {
+    showProgress('正在查询同车分段方案...', 85);
+    const segResults = await searchSameTrainSegmented(trains, fromCode, toCode, fromName, toName, date);
+    if (segResults.length) {
+      strategies.push({ name:'✂️ 分段购票（同车）', type:'segmented', trains:[],
+        desc:`找到 ${segResults.length} 个同车分段方案，在中间站拆分购票`,
+        tip: segResults.slice(0,5).map(r =>
+          `${r.trainNo}: 经${r.midStation}分段，两段均有票`
         ).join('\n'),
         segData: segResults,
         priority:3 });
     }
-  } catch (e) { console.error('Transfer/Segmented failed:', e); }
+  } catch (e) { console.error('Segmented failed:', e); }
 
   // 6. 买短乘长 - 实际查询
   try {
@@ -1182,7 +1166,25 @@ async function autoBuyLong(trains, fromCode, toCode, date) {
   return results;
 }
 
-// ========== 分段购票查询 ==========
+// 构建同车分段的单段车次行
+function buildSameTrainSegRow(train, trainNo) {
+  var seats = seatTagsHTML(train);
+  var price = getMinAvailablePrice(train);
+  var tip = priceTooltipHTML(train);
+  var isReal = train.prices && Object.keys(train.prices).length > 0;
+  var pfx = isReal ? '¥' : '≈¥';
+  var row = '<div style="display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--card);border-radius:6px;border:1px solid var(--border);font-size:.82em">';
+  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">' + train.trainNo + '</span>';
+  row += '<span style="font-family:monospace">' + train.startTime + '</span>';
+  row += '<span style="color:var(--text3)">→</span>';
+  row += '<span style="font-family:monospace">' + train.arriveTime + '</span>';
+  row += '<span style="margin-left:auto">' + seats + '</span>';
+  row += '<span class="price-tip" style="color:var(--accent);font-weight:600;min-width:45px;text-align:right;cursor:help">' + pfx + price + '<span class="tip-content">' + tip + '</span></span>';
+  row += '</div>';
+  return row;
+}
+
+// 分段购票查询（旧版，保留兼容）
 async function searchSegmented(fromCode, toCode, fromName, toName, date) {
   try {
     const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
@@ -1206,6 +1208,65 @@ async function searchSegmented(fromCode, toCode, fromName, toName, date) {
     console.error('Segmented search failed:', e);
   }
   return [];
+}
+
+// ========== 分段购票查询（同车分段） ==========
+async function searchSameTrainSegmented(trains, fromCode, toCode, fromName, toName, date) {
+  const results = [];
+  const seenTrains = new Set();
+  // 筛选有票或可候补的车次
+  const checkTrains = trains.filter(t => t.canBuy).slice(0, 10);
+
+  for (const t of checkTrains) {
+    if (seenTrains.has(t.trainNo)) continue;
+    try {
+      const sr = await fetch(`/api/schedule?trainNo=${t.trainCode}&date=${date}&fromCode=${fromCode}&toCode=${t.toStationCode}`);
+      const sd = await sr.json();
+      if (sd.status !== 0 || !sd.data) continue;
+
+      const stops = sd.data;
+      const fromIdx = stops.findIndex(s => s.stationName.includes(fromName.replace(/站$/, '')));
+      const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/, '')));
+      if (fromIdx < 0 || toIdx <= fromIdx) continue;
+
+      // 遍历中间站（从远到近），找同车分段方案
+      const midStops = stops.slice(fromIdx + 1, toIdx);
+      for (let mi = midStops.length - 1; mi >= 0; mi--) {
+        const mid = midStops[mi];
+        const midStation = Object.values(allStations).find(s => s.name === mid.stationName);
+        if (!midStation) continue;
+
+        try {
+          // 查第一段：from → mid
+          const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
+          const d1 = await r1.json();
+          if (d1.status !== 0 || !d1.data) continue;
+          const leg1Train = d1.data.find(x => x.trainNo === t.trainNo);
+          if (!leg1Train || !hasTicket(leg1Train)) continue;
+
+          // 查第二段：mid → to
+          const r2 = await fetch(`/api/ticket?from=${midStation.code}&to=${toCode}&date=${date}`);
+          const d2 = await r2.json();
+          if (d2.status !== 0 || !d2.data) continue;
+          const leg2Train = d2.data.find(x => x.trainNo === t.trainNo);
+          if (!leg2Train || !hasTicket(leg2Train)) continue;
+
+          // 两段都有票，记录方案
+          results.push({
+            midStation: mid.stationName,
+            midCode: midStation.code,
+            trainNo: t.trainNo,
+            trainCode: t.trainCode,
+            leg1: leg1Train,
+            leg2: leg2Train,
+          });
+          seenTrains.add(t.trainNo);
+          break; // 每趟车只取一个最优分段点
+        } catch (e) { /* skip */ }
+      }
+    } catch (e) { /* skip */ }
+  }
+  return results;
 }
 
 // ========== 买短乘长自动查询 ==========
@@ -1429,61 +1490,26 @@ function buildStrategyContent(idx, s) {
     }
   }
 
-  // segmented - 使用共享的左右双列面板组件（与中转换乘相同布局）
+  // segmented - 同车分段购票
   if (s.segData && s.segData.length) {
     for (var si = 0; si < s.segData.length; si++) {
       var sr = s.segData[si];
-      var segHubId = 'seg_' + idx + '_' + si;
-      var totalCompat = 0;
-      if (sr.compatibility) {
-        var compatKeys = Object.keys(sr.compatibility);
-        for (var ck = 0; ck < compatKeys.length; ck++) {
-          totalCompat += (sr.compatibility[compatKeys[ck]] || []).length;
-        }
-      }
-      // 对 leg1 排序：生成排序后的索引数组（保留原始索引用于 compatibility 查询）
-      var sortedIndices = sr.leg1.map(function(t, i) { return { train: t, origIdx: i }; });
-      sortedIndices.sort(function(a, b) {
-        var cmp = 0;
-        switch (st.sort) {
-          case 'time': cmp = timeToMinutes(a.train.startTime) - timeToMinutes(b.train.startTime); break;
-          case 'arrive': cmp = timeToMinutes(a.train.arriveTime) - timeToMinutes(b.train.arriveTime); break;
-          case 'duration':
-            var da = (a.train.duration||'99:99').split(':'), db = (b.train.duration||'99:99').split(':');
-            cmp = (parseInt(da[0])*60+parseInt(da[1])) - (parseInt(db[0])*60+parseInt(db[1]));
-            break;
-          case 'price': cmp = estimatePrice(a.train) - estimatePrice(b.train); break;
-        }
-        return st.asc ? cmp : -cmp;
-      });
-      // 筛选出发/到达时间
-      if (st.depStart || st.depEnd) {
-        var ds = st.depStart ? timeToMinutes(st.depStart) : 0;
-        var de = st.depEnd ? timeToMinutes(st.depEnd) : 1440;
-        if (ds <= de) sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.startTime); return m>=ds && m<=de; });
-        else sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.startTime); return m>=ds || m<=de; });
-      }
-      if (st.arrStart || st.arrEnd) {
-        var as = st.arrStart ? timeToMinutes(st.arrStart) : 0;
-        var ae = st.arrEnd ? timeToMinutes(st.arrEnd) : 1440;
-        if (as <= ae) sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.arriveTime); return m>=as && m<=ae; });
-        else sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.arriveTime); return m>=as || m<=ae; });
-      }
-      // 构建排过序的 leg1 和原始索引映射
-      var sortedLeg1 = sortedIndices.map(function(x) { return x.train; });
-      var sortedOrigIndices = sortedIndices.map(function(x) { return x.origIdx; });
-
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
-      content += '<div style="font-weight:600">✂️ 经 <span style="color:var(--accent)">'+sr.hub+'</span> 分段购票</div>';
-      content += '<span style="font-size:.75em;color:var(--text2)">'+sr.leg1Count+'趟前程 · '+sr.leg2Count+'趟后程 · '+totalCompat+'个可搭配组合 · 点选前程自动筛选可衔接后程</span>';
+      content += '<div style="font-weight:600">✂️ <span style="font-family:monospace;font-weight:700">'+sr.trainNo+'</span> 经 <span style="color:var(--accent)">'+sr.midStation+'</span> 同车分段</div>';
+      content += '<span style="font-size:.75em;color:var(--text2)">同一趟车 · 不用换乘 · 分别购票</span>';
       content += '</div>';
-      content += buildDualLegPanelSorted(sr, sortedLeg1, sortedOrigIndices, {
-        hubId: segHubId,
-        leg1Label: '第一段（出发）',
-        leg2Label: '第二段（到达）',
-        note: '💡 分段购票：分别购买两张独立车票，需在'+sr.hub+'出站再进站，两段车票独立存在',
-      });
+      // 第一段
+      content += '<div style="margin-bottom:6px">';
+      content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第一段：'+fromName+' → '+sr.midStation+'</div>';
+      content += buildSameTrainSegRow(sr.leg1, sr.trainNo);
+      content += '</div>';
+      // 第二段
+      content += '<div>';
+      content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第二段：'+sr.midStation+' → '+toName+'</div>';
+      content += buildSameTrainSegRow(sr.leg2, sr.trainNo);
+      content += '</div>';
+      content += '<div style="margin-top:8px;padding:8px 10px;background:rgba(39,174,96,.06);border-radius:6px;font-size:.75em;color:var(--text2)">💡 同车分段：同一趟车在'+sr.midStation+'拆分购票，无需下车换乘，刷两次身份证即可</div>';
       content += '</div>';
     }
   }
