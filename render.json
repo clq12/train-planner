@@ -1,0 +1,15 @@
+{
+  "build": {
+    "env": {
+      "NODE_ENV": "production"
+    }
+  },
+  "environments": {
+    "production": {
+      "envVars": {
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}
+

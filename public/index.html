@@ -1,0 +1,1971 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🚂 车票路径规划器 - 12306实时查询</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#faf6f0;--card:#fff8ee;--card2:#fff3e0;--card-hover:#ffefc8;
+  --accent:#e67e22;--accent2:#e74c3c;--accent3:#f39c12;
+  --text:#3e2f1c;--text2:#8b7355;--text3:#bda77e;
+  --border:#e8d5b8;--success:#27ae60;--warn:#e67e22;--error:#e74c3c;
+}
+body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
+.container{max-width:1100px;margin:0 auto;padding:16px}
+
+.header{text-align:center;padding:28px 0 18px}
+.header h1{font-size:1.9em;font-weight:800;background:linear-gradient(135deg,var(--accent),#d35400,var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
+.header p{color:var(--text2);font-size:.88em}
+.header .badge-live{display:inline-block;background:rgba(39,174,96,.1);color:var(--success);padding:2px 9px;border-radius:10px;font-size:.7em;font-weight:600;margin-top:6px;border:1px solid rgba(39,174,96,.2)}
+
+.search-panel{background:var(--card);border-radius:14px;padding:20px;margin-bottom:16px;border:1px solid var(--border)}
+.search-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+.field{flex:1;min-width:140px;position:relative}
+.field label{display:block;font-size:.75em;color:var(--text2);margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.field input{width:100%;padding:10px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;color:var(--text);font-size:.92em;outline:none;transition:border-color .2s}
+.field input:focus{border-color:var(--accent)}
+.field input::placeholder{color:var(--text3)}
+
+.station-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--card2);border:1px solid var(--border);border-radius:9px;max-height:220px;overflow-y:auto;z-index:50;display:none;box-shadow:0 8px 30px rgba(0,0,0,.12)}
+.station-dropdown.show{display:block}
+.station-item{padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:background .15s;font-size:.85em}
+.station-item:hover,.station-item.active{background:rgba(230,126,34,.1)}
+.station-item .sname{font-weight:500}.station-item .scode{color:var(--text3);font-size:.75em;margin-left:6px}
+.station-item .sdesc{color:var(--text2);font-size:.72em}
+
+.btn-search{padding:10px 24px;background:linear-gradient(135deg,var(--accent),#d35400);color:#fff;border:none;border-radius:9px;font-size:.92em;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s;white-space:nowrap}
+.btn-search:hover{transform:translateY(-1px);box-shadow:0 4px 18px rgba(230,126,34,.3)}
+.btn-search:active{transform:scale(.97)}
+.btn-search:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn-swap{padding:7px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text2);cursor:pointer;font-size:.95em;transition:all .2s;align-self:flex-end}
+.btn-swap:hover{border-color:var(--accent);color:var(--accent);transform:rotate(180deg)}
+
+.tabs{display:flex;gap:3px;margin-bottom:14px;background:var(--card);border-radius:11px;padding:3px;border:1px solid var(--border)}
+.tab{flex:1;text-align:center;padding:9px;border-radius:8px;font-size:.82em;font-weight:500;cursor:pointer;color:var(--text2);transition:all .2s}
+.tab.active{background:var(--accent);color:#fff}
+.tab:hover:not(.active){background:var(--card-hover);color:var(--text)}
+
+.strategies{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+.strat-tag{padding:4px 11px;border-radius:14px;font-size:.75em;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text2);transition:all .2s}
+.strat-tag.active{border-color:var(--accent);color:var(--accent);background:rgba(230,126,34,.08)}
+.strat-tag:hover{border-color:var(--accent)}
+
+.stats-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.stat-card{flex:1;min-width:90px;background:var(--card);border-radius:9px;padding:10px;border:1px solid var(--border);text-align:center}
+.stat-card .num{font-size:1.3em;font-weight:700}.stat-card .label{font-size:.7em;color:var(--text2);margin-top:1px}
+.stat-card.s-green .num{color:var(--success)}.stat-card.s-yellow .num{color:var(--accent3)}.stat-card.s-blue .num{color:var(--accent)}
+
+.loading{text-align:center;padding:36px;display:none}.loading.show{display:block}
+.spinner{width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.train-list{display:flex;flex-direction:column;gap:7px}
+.train-card{background:var(--card);border-radius:11px;padding:14px;border:1px solid var(--border);cursor:pointer;transition:all .2s}
+.train-card:hover{border-color:var(--accent);background:var(--card-hover);transform:translateX(2px)}
+.train-card.has-ticket{border-left:3px solid var(--success)}
+.train-card.no-ticket{border-left:3px solid var(--text3);opacity:.7}
+.train-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.train-no{font-size:1em;font-weight:700;font-family:'SF Mono',Consolas,monospace}
+.train-type{padding:2px 7px;border-radius:5px;font-size:.68em;font-weight:600;margin-left:6px}
+.type-g{background:rgba(39,174,96,.1);color:var(--success)}.type-d{background:rgba(230,126,34,.1);color:var(--accent)}
+.type-k{background:rgba(230,126,34,.1);color:var(--warn)}.type-z{background:rgba(211,84,0,.1);color:#d35400}
+.type-t{background:rgba(243,156,18,.1);color:#e67e22}
+
+.train-times{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.time-block{text-align:center}.time-block .t{font-size:1.2em;font-weight:700;font-family:'SF Mono',Consolas,monospace}
+.time-block .s{font-size:.72em;color:var(--text2);margin-top:1px}
+.time-arrow{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px}
+.time-arrow .dur{font-size:.7em;color:var(--text2)}
+.time-arrow .dots{display:flex;gap:2px}.time-arrow .dot{width:3px;height:3px;border-radius:50%;background:var(--text3)}
+
+.seats{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.seat{padding:2px 7px;border-radius:5px;font-size:.7em;background:var(--bg);border:1px solid var(--border)}
+.seat.has{border-color:rgba(39,174,96,.3);color:var(--success)}.seat.no{color:var(--text3)}
+.seat .stype{color:var(--text2);margin-right:3px}
+
+.timetable{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:none}
+.timetable.show{display:block}
+.tt-table{width:100%;border-collapse:collapse;font-size:.8em}
+.tt-table th{color:var(--text3);font-weight:500;text-align:left;padding:5px 7px;border-bottom:1px solid var(--border)}
+.tt-table td{padding:6px 7px;border-bottom:1px solid rgba(35,40,57,.5)}
+.tt-table tr:hover td{background:rgba(230,126,34,.04)}
+.tt-table .current{color:#d35400;font-weight:600}
+.tt-table .tt-time{font-family:'SF Mono',Consolas,monospace}
+
+.route-card{background:var(--card);border-radius:11px;padding:14px;border:1px solid var(--border);margin-bottom:8px;transition:all .2s}
+.route-card:hover{border-color:var(--accent)}
+.route-card .route-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.route-card .route-name{font-weight:600;font-size:.92em}
+.route-card .route-badge{padding:2px 9px;border-radius:9px;font-size:.7em;font-weight:500}
+.badge-direct{background:rgba(39,174,96,.1);color:var(--success)}.badge-transfer{background:rgba(230,126,34,.1);color:var(--warn)}.badge-trick{background:rgba(230,126,34,.1);color:var(--accent)}
+
+.route-trains{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+.route-train-chip{padding:3px 9px;background:var(--bg);border:1px solid var(--border);border-radius:7px;font-size:.75em;font-family:'SF Mono',Consolas,monospace;cursor:pointer;transition:all .15s}
+.route-train-chip:hover{border-color:var(--accent);color:var(--accent)}
+.route-train-chip.has-t{border-color:rgba(39,174,96,.3);color:var(--success)}
+
+.tip-box{background:rgba(243,156,18,.08);border:1px solid rgba(243,156,18,.2);border-radius:8px;padding:9px 12px;margin-top:8px;font-size:.8em;color:#b8621b}
+
+.empty-state{text-align:center;padding:44px 20px;color:var(--text2)}
+.empty-state .icon{font-size:2.3em;margin-bottom:10px}.empty-state h3{color:var(--text);margin-bottom:4px;font-size:1em}
+
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(62,47,28,.45);z-index:100;backdrop-filter:blur(4px)}
+.modal-overlay.show{display:flex;align-items:center;justify-content:center}
+.modal{background:var(--card);border-radius:14px;padding:22px;max-width:700px;width:92%;max-height:80vh;overflow-y:auto;border:1px solid var(--border)}
+.modal h2{margin-bottom:10px;font-size:1.05em}
+.modal-close{float:right;background:none;border:none;color:var(--text2);font-size:1.2em;cursor:pointer}
+
+.progress-bar{margin:12px 0;display:none}.progress-bar.show{display:block}
+.progress-bar .bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.progress-bar .bar .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--success));border-radius:2px;transition:width .3s;width:0}
+.progress-bar .p-text{font-size:.72em;color:var(--text2);margin-top:3px;text-align:center}
+
+/* Strategy detail styles */
+.strategy-section{margin-bottom:16px}
+.strategy-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.strategy-header h3{font-size:.95em}
+.strategy-header .count{font-size:.75em;color:var(--text2)}
+
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
+.detail-card{background:var(--card2);border-radius:9px;padding:12px;border:1px solid var(--border)}
+.detail-card .train-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.detail-card .train-id{font-family:'SF Mono',Consolas,monospace;font-weight:700;font-size:.9em}
+.detail-card .train-status{font-size:.72em;padding:2px 7px;border-radius:5px}
+.detail-card .train-status.ok{background:rgba(39,174,96,.1);color:var(--success)}
+.detail-card .train-status.no{background:rgba(231,76,60,.1);color:var(--error)}
+.detail-card .train-route{font-size:.82em;color:var(--text2);margin-bottom:4px}
+.detail-card .train-time{font-size:.85em;font-family:'SF Mono',Consolas,monospace}
+
+/* Sort & Filter Panel */
+.sort-filter-panel{background:var(--card);border-radius:11px;padding:14px;margin-bottom:12px;border:1px solid var(--border)}
+.sf-row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px}
+.sf-row:last-child{margin-bottom:0}
+.sf-group{flex:1;min-width:200px}
+.sf-label{display:block;font-size:.73em;color:var(--text2);margin-bottom:5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.sort-btns{display:flex;gap:4px;flex-wrap:wrap}
+.sort-btn{padding:6px 12px;border-radius:7px;font-size:.78em;cursor:pointer;border:1.5px solid var(--border);background:var(--bg);color:var(--text2);transition:all .2s;font-weight:500}
+.sort-btn:hover{border-color:var(--accent);color:var(--accent)}
+.sort-btn.active{border-color:var(--accent);color:#fff;background:var(--accent)}
+.sort-btn .arrow{font-size:.85em;margin-left:2px}
+.time-range{display:flex;align-items:center;gap:6px}
+.time-range input[type="time"]{flex:1;padding:7px 10px;background:var(--bg);border:1.5px solid var(--border);border-radius:7px;color:var(--text);font-size:.85em;outline:none;transition:border-color .2s;font-family:'SF Mono',Consolas,monospace}
+.time-range input[type="time"]:focus{border-color:var(--accent)}
+.range-sep{color:var(--text3);font-size:.8em}
+.clear-filter{padding:5px 8px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);cursor:pointer;font-size:.75em;transition:all .2s}
+.clear-filter:hover{border-color:var(--error);color:var(--error)}
+.filter-chips{display:flex;gap:5px;flex-wrap:wrap}
+.filter-chip{display:flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(230,126,34,.08);border:1px solid rgba(230,126,34,.2);border-radius:12px;font-size:.73em;color:var(--accent);font-weight:500}
+.filter-chip .chip-x{cursor:pointer;font-size:1.1em;opacity:.6;transition:opacity .15s}
+.filter-chip .chip-x:hover{opacity:1}
+.filter-count{font-size:.75em;color:var(--text2);margin-left:6px}
+
+@media(max-width:640px){
+  .search-row{flex-direction:column}.field{min-width:100%}.btn-search{width:100%}
+  .btn-swap{align-self:center;transform:rotate(90deg)}.btn-swap:hover{transform:rotate(270deg)}
+  .header h1{font-size:1.4em}.stats-bar{gap:4px}.stat-card{min-width:60px;padding:6px}
+  .train-times{flex-direction:column;gap:4px}.time-arrow{width:100%}
+  .detail-grid{grid-template-columns:1fr}
+}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d4b896;border-radius:3px}
+
+/* 自定义 tooltip — JS 定位，不溢出视口 */
+.price-tip{position:relative;display:inline-block}
+.price-tip .tip-content{display:none;position:fixed;background:#3e2f1c;color:#faf6f0;padding:10px 14px;border-radius:8px;font-size:.78em;font-weight:400;white-space:nowrap;z-index:200;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.25);line-height:1.8;max-width:320px;white-space:normal;word-break:break-all}
+.tip-real{color:#27ae60;font-weight:600}.tip-est{color:#f39c12;font-weight:600}
+.tip-row{display:block}
+
+/* 回到顶部按钮 */
+.back-to-top{position:fixed;bottom:32px;right:32px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#d35400);color:#fff;border:none;font-size:1.2em;cursor:pointer;box-shadow:0 4px 16px rgba(230,126,34,.35);opacity:0;transform:translateY(20px);pointer-events:none;transition:opacity .25s,transform .25s;z-index:90;display:flex;align-items:center;justify-content:center}
+.back-to-top.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.back-to-top:hover{box-shadow:0 6px 24px rgba(230,126,34,.5);transform:translateY(-2px)}
+.back-to-top:active{transform:scale(.92)}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>🚂 车票路径规划器</h1>
+    <p>12306 实时数据 · 多策略购票方案 · 直达 / 买长乘短 / 分段购票 / 中转换乘 / 候补</p>
+    <span class="badge-live">● 接入12306实时数据</span>
+  </div>
+
+  <div class="search-panel">
+    <div class="search-row">
+      <div class="field">
+        <label>出发站</label>
+        <input type="text" id="fromInput" placeholder="输入站名或拼音" autocomplete="off">
+        <div class="station-dropdown" id="fromDropdown"></div>
+        <input type="hidden" id="fromCode">
+      </div>
+      <button class="btn-swap" onclick="swapStations()" title="交换出发/到达">⇄</button>
+      <div class="field">
+        <label>到达站</label>
+        <input type="text" id="toInput" placeholder="输入站名或拼音" autocomplete="off">
+        <div class="station-dropdown" id="toDropdown"></div>
+        <input type="hidden" id="toCode">
+      </div>
+      <div class="field" style="max-width:140px">
+        <label>出发日期</label>
+        <input type="date" id="travelDate">
+      </div>
+      <button class="btn-search" id="btnSearch" onclick="doSearch()">🔍 查询</button>
+    </div>
+  </div>
+
+  <div class="progress-bar" id="progressBar">
+    <div class="bar"><div class="fill" id="progressFill"></div></div>
+    <div class="p-text" id="progressText">准备查询...</div>
+  </div>
+
+  <div class="tabs" id="mainTabs">
+    <div class="tab active" onclick="switchTab('direct')">🚄 直达车次</div>
+    <div class="tab" onclick="switchTab('strategy')">🧠 多策略方案</div>
+    <div class="tab" onclick="switchTab('schedule')">📋 时刻表查询</div>
+  </div>
+
+  <div id="tabDirect">
+    <div class="strategies" id="filterTags"></div>
+
+    <!-- 排序与筛选面板 -->
+    <div class="sort-filter-panel" id="sortFilterPanel" style="display:none">
+      <div class="sf-row">
+        <div class="sf-group">
+          <label class="sf-label">📊 排序方式</label>
+          <div class="sort-btns" id="sortBtns">
+            <button class="sort-btn active" data-sort="time" onclick="setSort('time')">出发时间 ↑</button>
+            <button class="sort-btn" data-sort="arrive" onclick="setSort('arrive')">到达时间 ↑</button>
+            <button class="sort-btn" data-sort="duration" onclick="setSort('duration')">耗时 ↑</button>
+            <button class="sort-btn" data-sort="price" onclick="setSort('price')">价格 ↑</button>
+          </div>
+        </div>
+      </div>
+      <div class="sf-row">
+        <div class="sf-group">
+          <label class="sf-label">🕐 出发时间范围</label>
+          <div class="time-range">
+            <input type="time" id="filterDepStart" placeholder="开始时间" onchange="applyFilters()">
+            <span class="range-sep">至</span>
+            <input type="time" id="filterDepEnd" placeholder="结束时间" onchange="applyFilters()">
+            <button class="clear-filter" onclick="clearTimeFilter('dep')" title="清除">✕</button>
+          </div>
+        </div>
+        <div class="sf-group">
+          <label class="sf-label">🕕 到达时间范围</label>
+          <div class="time-range">
+            <input type="time" id="filterArrStart" placeholder="开始时间" onchange="applyFilters()">
+            <span class="range-sep">至</span>
+            <input type="time" id="filterArrEnd" placeholder="结束时间" onchange="applyFilters()">
+            <button class="clear-filter" onclick="clearTimeFilter('arr')" title="清除">✕</button>
+          </div>
+        </div>
+      </div>
+      <div class="sf-row" id="activeFilters" style="display:none">
+        <div class="filter-chips" id="filterChips"></div>
+      </div>
+    </div>
+
+    <div class="stats-bar" id="statsBar" style="display:none"></div>
+    <div class="loading" id="loading"><div class="spinner"></div><p style="color:var(--text2)">正在查询12306...</p></div>
+    <div class="train-list" id="trainList"></div>
+  </div>
+
+  <div id="tabStrategy" style="display:none">
+    <div class="stats-bar" id="strategyStats" style="display:none"></div>
+    <div id="strategyList"></div>
+  </div>
+
+  <div id="tabSchedule" style="display:none">
+    <div class="search-panel" style="margin-bottom:12px">
+      <div class="search-row">
+        <div class="field">
+          <label>车次编号（如 G2、D31）</label>
+          <input type="text" id="scheduleTrainNo" placeholder="输入车次号">
+        </div>
+        <button class="btn-search" onclick="querySchedule()">📋 查询时刻表</button>
+      </div>
+    </div>
+    <div id="scheduleResult"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<button class="back-to-top" id="backToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="回到顶部">↑</button>
+
+<script>
+let allStations = {};
+let stationList = [];
+let currentTrains = [];
+let currentTab = 'direct';
+
+// ========== 车站搜索 ==========
+async function loadStations() {
+  try {
+    const r = await fetch('/api/stations');
+    const d = await r.json();
+    if (d.status === 0) {
+      allStations = d.data;
+      stationList = Object.values(allStations).sort((a, b) => a.index - b.index);
+    }
+  } catch (e) { console.error('加载车站失败:', e); }
+}
+
+function setupStationInput(inputId, dropdownId, codeId) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  let activeIdx = -1;
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    document.getElementById(codeId).value = '';
+    if (!q) { dropdown.classList.remove('show'); return; }
+
+    // 模糊搜索：中文名、拼音全拼、拼音首字母、车站编码，全部用 includes
+    let matches = stationList.filter(s => {
+      const name = s.name.toLowerCase();
+      const pinyin = s.pinyin.toLowerCase();
+      const pinyinShort = s.pinyinShort.toLowerCase();
+      const code = s.code.toLowerCase();
+      return name.includes(q) || pinyin.includes(q) || pinyinShort.includes(q) || code.includes(q);
+    });
+
+    // 按相关性排序：前缀匹配 > 包含匹配；短名优先
+    matches.sort((a, b) => {
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      const aPinyin = a.pinyin.toLowerCase();
+      const bPinyin = b.pinyin.toLowerCase();
+      const aShort = a.pinyinShort.toLowerCase();
+      const bShort = b.pinyinShort.toLowerCase();
+
+      // 1. 中文名前缀匹配优先
+      const aNamePrefix = aName.startsWith(q) ? 0 : 1;
+      const bNamePrefix = bName.startsWith(q) ? 0 : 1;
+      if (aNamePrefix !== bNamePrefix) return aNamePrefix - bNamePrefix;
+
+      // 2. 拼音前缀匹配优先
+      const aPinyinPrefix = aPinyin.startsWith(q) ? 0 : 1;
+      const bPinyinPrefix = bPinyin.startsWith(q) ? 0 : 1;
+      if (aPinyinPrefix !== bPinyinPrefix) return aPinyinPrefix - bPinyinPrefix;
+
+      // 3. 短名优先（"北京站"排在"北京朝阳"前面）
+      if (aName.length !== bName.length) return aName.length - bName.length;
+
+      // 4. 按索引（热门站点优先）
+      return a.index - b.index;
+    }).slice(0, 20);
+
+    if (!matches.length) { dropdown.classList.remove('show'); return; }
+    activeIdx = -1;
+    dropdown.innerHTML = matches.map(s => {
+      // 高亮匹配的文字
+      const nameHtml = highlightMatch(s.name, q);
+      const pinyinHtml = highlightMatch(s.pinyin, q);
+      const safeCode = escapeHTML(s.code);
+      const safeName = escapeHTML(s.name);
+      return `<div class="station-item" onclick="selStation('${inputId}','${dropdownId}','${codeId}','${safeCode}','${safeName}')">
+        <span><span class="sname">${nameHtml}</span><span class="scode">${safeCode}</span></span>
+        <span class="sdesc">${pinyinHtml}</span>
+      </div>`;
+    }).join('');
+    dropdown.classList.add('show');
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const items = dropdown.querySelectorAll('.station-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx+1, items.length-1); items.forEach((it,i)=>it.classList.toggle('active',i===activeIdx)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx-1, 0); items.forEach((it,i)=>it.classList.toggle('active',i===activeIdx)); }
+    else if (e.key === 'Enter' && activeIdx >= 0 && items[activeIdx]) { items[activeIdx].click(); e.preventDefault(); }
+    else if (e.key === 'Escape') { dropdown.classList.remove('show'); }
+  });
+
+  input.addEventListener('focus', () => { if (input.value.trim()) input.dispatchEvent(new Event('input')); });
+  document.addEventListener('click', e => { if (!e.target.closest('.field')) dropdown.classList.remove('show'); });
+}
+
+// HTML 转义（防 XSS）
+function escapeHTML(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// 高亮匹配文字
+function highlightMatch(text, query) {
+  if (!query) return escapeHTML(text);
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx < 0) return escapeHTML(text);
+  const before = escapeHTML(text.slice(0, idx));
+  const match = escapeHTML(text.slice(idx, idx + query.length));
+  const after = escapeHTML(text.slice(idx + query.length));
+  return `${before}<span style="color:var(--accent);font-weight:600">${match}</span>${after}`;
+}
+
+function selStation(inputId, dropdownId, codeId, code, name) {
+  document.getElementById(inputId).value = name;
+  document.getElementById(codeId).value = code;
+  document.getElementById(dropdownId).classList.remove('show');
+}
+
+function swapStations() {
+  const fi=document.getElementById('fromInput'),ti=document.getElementById('toInput');
+  const fc=document.getElementById('fromCode'),tc=document.getElementById('toCode');
+  [fi.value,ti.value]=[ti.value,fi.value]; [fc.value,tc.value]=[tc.value,fc.value];
+}
+
+// ========== Tabs ==========
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const tabs = ['direct','strategy','schedule'];
+    t.classList.toggle('active', tabs[i]===tab);
+  });
+  document.getElementById('tabDirect').style.display = tab==='direct'?'':'none';
+  document.getElementById('tabStrategy').style.display = tab==='strategy'?'':'none';
+  document.getElementById('tabSchedule').style.display = tab==='schedule'?'':'none';
+}
+
+// ========== Progress ==========
+function showProgress(text, pct) {
+  const bar = document.getElementById('progressBar');
+  bar.classList.add('show');
+  document.getElementById('progressText').textContent = text;
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+function hideProgress() { document.getElementById('progressBar').classList.remove('show'); }
+
+// ========== 主搜索 ==========
+async function doSearch() {
+  const fromCode = document.getElementById('fromCode').value;
+  const toCode = document.getElementById('toCode').value;
+  const fromName = document.getElementById('fromInput').value;
+  const toName = document.getElementById('toInput').value;
+  const date = document.getElementById('travelDate').value;
+
+  if (!fromCode || !toCode) { alert('请选择有效的车站'); return; }
+  if (fromCode === toCode) { alert('出发站和到达站不能相同'); return; }
+  if (!date) { alert('请选择出发日期'); return; }
+
+  const btn = document.getElementById('btnSearch');
+  btn.disabled = true; btn.textContent = '⏳ 查询中...';
+  document.getElementById('loading').classList.add('show');
+  document.getElementById('trainList').innerHTML = '';
+  document.getElementById('statsBar').style.display = 'none';
+
+  try {
+    showProgress('正在查询12306直达车次...', 20);
+    const resp = await fetch(`/api/ticket?from=${fromCode}&to=${toCode}&date=${date}`);
+    const data = await resp.json();
+
+    if (data.status === 0 && data.data) {
+      currentTrains = data.data;
+      const availCount = data.availableCount || 0;
+      const totalCount = data.totalCount || currentTrains.length;
+      showProgress(`查到 ${totalCount} 个车次，${availCount} 个有票，正在分析...`, 50);
+
+      // 重置排序和筛选
+      currentSort = 'time';
+      sortAsc = true;
+      trainTypeFilter = 'all';
+      document.getElementById('filterDepStart').value = '';
+      document.getElementById('filterDepEnd').value = '';
+      document.getElementById('filterArrStart').value = '';
+      document.getElementById('filterArrEnd').value = '';
+      document.querySelectorAll('#sortBtns .sort-btn').forEach(btn => {
+        const labels = {time:'出发时间',arrive:'到达时间',duration:'耗时',price:'价格'};
+        btn.innerHTML = `${labels[btn.dataset.sort]} ↑`;
+        btn.classList.toggle('active', btn.dataset.sort === 'time');
+      });
+      document.getElementById('sortFilterPanel').style.display = '';
+      document.getElementById('activeFilters').style.display = 'none';
+
+      // 默认只显示有票的车次，如果没有任何有票车次则显示全部
+      const withTickets = currentTrains.filter(t => t.canBuy && hasCommonTicket(t));
+      const displayTrains = withTickets.length > 0 ? withTickets : currentTrains;
+      renderTrainList(displayTrains, fromName, toName, date, withTickets.length > 0);
+
+      showProgress('正在计算多策略方案...', 70);
+      await computeStrategies(currentTrains, fromCode, toCode, fromName, toName, date);
+      showProgress('完成！', 100);
+      setTimeout(hideProgress, 800);
+    } else {
+      hideProgress();
+      document.getElementById('trainList').innerHTML =
+        `<div class="empty-state"><div class="icon">😕</div><h3>未查到车次</h3><p>${data.error||'请检查站点和日期'}</p></div>`;
+    }
+  } catch (e) {
+    hideProgress();
+    document.getElementById('trainList').innerHTML =
+      `<div class="empty-state"><div class="icon">⚠️</div><h3>查询失败</h3><p>${e.message}</p></div>`;
+  }
+
+  btn.disabled = false; btn.textContent = '🔍 查询';
+  document.getElementById('loading').classList.remove('show');
+}
+
+// ========== 渲染直达车次 ==========
+function renderTrainList(trains, fromName, toName, date, onlyAvailable) {
+  const allCanBuy = currentTrains.filter(t => t.canBuy && hasCommonTicket(t)).length;
+  const types = {};
+  const displayList = onlyAvailable ? trains : currentTrains;
+  displayList.forEach(t => {
+    const tp = trainType(t.trainNo);
+    const labels = {g:'高铁G',d:'动车D',k:'快速K',z:'直达Z',t:'特快T'};
+    if (!types[tp]) types[tp] = {label:labels[tp]||tp, count:0};
+    types[tp].count++;
+  });
+
+  document.getElementById('filterTags').innerHTML =
+    `<div class="strat-tag ${onlyAvailable?'active':''}" onclick="filterTrains('canbuy',this)">有票 (${allCanBuy})</div>` +
+    `<div class="strat-tag ${!onlyAvailable?'active':''}" onclick="filterTrains('all',this)">全部 (${currentTrains.length})</div>` +
+    Object.entries(types).map(([k,v]) =>
+      `<div class="strat-tag" onclick="filterTrains('${k}',this)">${v.label} (${v.count})</div>`
+    ).join('');
+
+  document.getElementById('statsBar').style.display = 'flex';
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-card s-green"><div class="num">${allCanBuy}</div><div class="label">有票车次</div></div>
+    <div class="stat-card s-blue"><div class="num">${currentTrains.length}</div><div class="label">总车次</div></div>
+    <div class="stat-card s-yellow"><div class="num">${fromName}→${toName}</div><div class="label">${date}</div></div>`;
+  // 通过 applyFilters 统一处理排序和筛选
+  applyFilters();
+}
+
+let trainTypeFilter = 'all'; // 'all', 'canbuy', or specific type like 'g', 'd', etc.
+
+function filterTrains(f, el) {
+  document.querySelectorAll('#filterTags .strat-tag').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  trainTypeFilter = f;
+  applyFiltersWithTrainType();
+}
+
+function applyFiltersWithTrainType() {
+  const depStart = document.getElementById('filterDepStart').value;
+  const depEnd = document.getElementById('filterDepEnd').value;
+  const arrStart = document.getElementById('filterArrStart').value;
+  const arrEnd = document.getElementById('filterArrEnd').value;
+
+  let filtered = [...currentTrains];
+  const chips = [];
+
+  // 车次类型筛选
+  if (trainTypeFilter === 'canbuy') {
+    filtered = filtered.filter(t => t.canBuy && hasCommonTicket(t));
+  } else if (trainTypeFilter !== 'all') {
+    filtered = filtered.filter(t => trainType(t.trainNo) === trainTypeFilter);
+  }
+
+  // 出发时间筛选
+  if (depStart || depEnd) {
+    const startMin = depStart ? timeToMinutes(depStart) : 0;
+    const endMin = depEnd ? timeToMinutes(depEnd) : 1440;
+    if (startMin <= endMin) {
+      filtered = filtered.filter(t => {
+        const m = timeToMinutes(t.startTime);
+        return m >= startMin && m <= endMin;
+      });
+    } else {
+      filtered = filtered.filter(t => {
+        const m = timeToMinutes(t.startTime);
+        return m >= startMin || m <= endMin;
+      });
+    }
+    const label = `出发 ${depStart || '00:00'} ~ ${depEnd || '24:00'}`;
+    chips.push({ label, type: 'dep' });
+  }
+
+  // 到达时间筛选
+  if (arrStart || arrEnd) {
+    const startMin = arrStart ? timeToMinutes(arrStart) : 0;
+    const endMin = arrEnd ? timeToMinutes(arrEnd) : 1440;
+    if (startMin <= endMin) {
+      filtered = filtered.filter(t => {
+        const m = timeToMinutes(t.arriveTime);
+        return m >= startMin && m <= endMin;
+      });
+    } else {
+      filtered = filtered.filter(t => {
+        const m = timeToMinutes(t.arriveTime);
+        return m >= startMin || m <= endMin;
+      });
+    }
+    const label = `到达 ${arrStart || '00:00'} ~ ${arrEnd || '24:00'}`;
+    chips.push({ label, type: 'arr' });
+  }
+
+  // 排序
+  filtered.sort((a, b) => {
+    let cmp = 0;
+    switch (currentSort) {
+      case 'time':
+        cmp = timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+        break;
+      case 'arrive':
+        cmp = timeToMinutes(a.arriveTime) - timeToMinutes(b.arriveTime);
+        break;
+      case 'duration':
+        const da = (a.duration || '99:99').split(':');
+        const db = (b.duration || '99:99').split(':');
+        cmp = (parseInt(da[0]) * 60 + parseInt(da[1])) - (parseInt(db[0]) * 60 + parseInt(db[1]));
+        break;
+      case 'price':
+        cmp = estimatePrice(a) - estimatePrice(b);
+        break;
+    }
+    return sortAsc ? cmp : -cmp;
+  });
+
+  // 更新筛选标签
+  const chipsEl = document.getElementById('activeFilters');
+  const chipsListEl = document.getElementById('filterChips');
+  if (chips.length > 0) {
+    chipsEl.style.display = '';
+    chipsListEl.innerHTML = chips.map(c =>
+      `<span class="filter-chip">${c.label}<span class="chip-x" onclick="clearTimeFilter('${c.type}')">✕</span></span>`
+    ).join('') + `<span class="filter-count">显示 ${filtered.length}/${currentTrains.length} 车次</span>`;
+  } else {
+    chipsEl.style.display = 'none';
+  }
+
+  renderTrainCards(filtered);
+}
+
+// ========== 排序与筛选 ==========
+let currentSort = 'time';
+let sortAsc = true;
+
+// ========== 价格估算系统 ==========
+// 基于12306实际定价规律（备用估算，当yp_info无数据时使用）：
+//   G 高铁二等座 ≈ 0.46元/km，一等座 ≈ 1.6倍，商务座 ≈ 3.2倍
+//   C 城际二等座 ≈ 0.46元/km（平均速度较低，停站较多）
+//   D 动车二等座 ≈ 0.31元/km，一等座 ≈ 1.5倍
+//   K/Z/T 普速硬座 ≈ 0.11元/km，硬卧 ≈ 1.6倍，软卧 ≈ 2.6倍
+// 距离通过 耗时×平均时速 估算
+
+function estimateBasePrice(t) {
+  // 返回二等座/硬座的基准价格（估算值，仅在真实票价不可用时使用）
+  const tp = trainType(t.trainNo);
+  const durParts = (t.duration || '0:00').split(':');
+  const durMins = parseInt(durParts[0], 10) * 60 + parseInt(durParts[1], 10);
+  if (tp === 'g') {
+    return Math.round(durMins * 200 * 0.46 / 60);
+  } else if (tp === 'c') {
+    return Math.round(durMins * 160 * 0.46 / 60);
+  } else if (tp === 'd') {
+    return Math.round(durMins * 160 * 0.31 / 60);
+  } else {
+    return Math.round(durMins * 80 * 0.11 / 60);
+  }
+}
+
+// 席别价格倍率（备用，当yp_info无真实票价时使用）
+const SEAT_MULTIPLIERS = {
+  g: { business: 3.2, first: 1.6, second: 1.0 },
+  d: { business: 3.2, first: 1.5, second: 1.0 },
+  k: { softSleep: 2.6, hardSleep: 1.6, hardSeat: 1.0, noSeat: 0.75 },
+  z: { softSleep: 2.6, hardSleep: 1.6, hardSeat: 1.0, noSeat: 0.75 },
+  t: { softSleep: 2.6, hardSleep: 1.6, hardSeat: 1.0, noSeat: 0.75 },
+  other: { softSleep: 2.6, hardSleep: 1.6, hardSeat: 1.0, noSeat: 0.75 },
+};
+
+// 返回各席别的价格 { seatName: price }
+// 优先使用12306真实票价（从yp_info解析），无数据时用估算
+function estimateAllPrices(t) {
+  // 如果有真实票价，直接使用
+  if (t.prices && Object.keys(t.prices).length > 0) {
+    return t.prices;
+  }
+  // 否则用估算
+  const tp = trainType(t.trainNo);
+  const base = estimateBasePrice(t);
+  const mult = SEAT_MULTIPLIERS[tp] || SEAT_MULTIPLIERS.other;
+  const prices = {};
+  for (const [seat, m] of Object.entries(mult)) {
+    prices[seat] = Math.round(base * m);
+  }
+  return prices;
+}
+
+// 获取最低可用席位的价格
+function getMinAvailablePrice(t) {
+  const prices = estimateAllPrices(t);
+  const checks = [
+    {key:'second', val:t.second}, {key:'hardSeat', val:t.hardSeat}, {key:'noSeat', val:t.noSeat},
+    {key:'first', val:t.first}, {key:'business', val:t.business},
+    {key:'hardSleep', val:t.hardSleep}, {key:'softSleep', val:t.softSleep},
+  ];
+  let minPrice = Infinity;
+  for (const c of checks) {
+    if (prices[c.key] && c.val && c.val !== '无' && c.val !== '--' && c.val !== '') {
+      if (prices[c.key] < minPrice) minPrice = prices[c.key];
+    }
+  }
+  return minPrice === Infinity ? estimateBasePrice(t) : minPrice;
+}
+
+// 生成价格tooltip HTML（所有可用席位价格，用于自定义tooltip）
+function priceTooltipHTML(t) {
+  const prices = estimateAllPrices(t);
+  const isReal = t.prices && Object.keys(t.prices).length > 0;
+  const labels = {
+    business:'商务座', first:'一等座', second:'二等座',
+    softSleep:'软卧', hardSleep:'硬卧', hardSeat:'硬座', noSeat:'无座',
+    special:'特等座', highSoft:'高级软卧'
+  };
+  const checks = [
+    {key:'business', val:t.business}, {key:'first', val:t.first}, {key:'second', val:t.second},
+    {key:'softSleep', val:t.softSleep}, {key:'hardSleep', val:t.hardSleep},
+    {key:'hardSeat', val:t.hardSeat}, {key:'noSeat', val:t.noSeat},
+  ];
+  const rows = [];
+  for (const c of checks) {
+    if (prices[c.key] && c.val && c.val !== '无' && c.val !== '--' && c.val !== '') {
+      rows.push('<span class="tip-row">' + labels[c.key] + ': ¥' + prices[c.key] + '</span>');
+    }
+  }
+  const cls = isReal ? 'tip-real' : 'tip-est';
+  const prefix = isReal ? '💰 12306实际票价' : '⚠️ 估算价格';
+  return '<span class="' + cls + '">' + prefix + '</span>' + rows.join('');
+}
+
+// 向后兼容：estimatePrice 返回最低可用价格
+function estimatePrice(t) {
+  return getMinAvailablePrice(t);
+}
+
+function timeToMinutes(t) {
+  if (!t) return 0;
+  const parts = t.split(':');
+  return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+}
+
+function setSort(sortKey) {
+  if (currentSort === sortKey) {
+    sortAsc = !sortAsc;
+  } else {
+    currentSort = sortKey;
+    sortAsc = true;
+  }
+  // 更新按钮文字
+  document.querySelectorAll('#sortBtns .sort-btn').forEach(btn => {
+    const key = btn.dataset.sort;
+    const labels = {time:'出发时间',arrive:'到达时间',duration:'耗时',price:'价格'};
+    if (key === sortKey) {
+      btn.classList.add('active');
+      btn.innerHTML = `${labels[key]} ${sortAsc ? '↑' : '↓'}`;
+    } else {
+      btn.classList.remove('active');
+      btn.innerHTML = `${labels[key]} ↑`;
+    }
+  });
+  applyFilters();
+}
+
+function applyFilters() {
+  applyFiltersWithTrainType();
+}
+
+function clearTimeFilter(type) {
+  if (type === 'dep') {
+    document.getElementById('filterDepStart').value = '';
+    document.getElementById('filterDepEnd').value = '';
+  } else {
+    document.getElementById('filterArrStart').value = '';
+    document.getElementById('filterArrEnd').value = '';
+  }
+  applyFilters();
+}
+
+function renderTrainCards(trains) {
+  const el = document.getElementById('trainList');
+  if (!trains.length) { el.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><h3>没有符合条件的车次</h3><p style="color:var(--text2);font-size:.85em;margin-top:6px">请尝试调整筛选条件</p></div>`; return; }
+  el.innerHTML = trains.map((t,i) => trainCardHTML(t,i)).join('');
+}
+
+function trainCardHTML(t, idx) {
+  const tp = trainType(t.trainNo);
+  const tl = {g:'高铁',d:'动车',k:'快速',z:'直达',t:'特快'}[tp]||'其他';
+  const seats = [
+    {n:'商务',v:t.business},{n:'一等',v:t.first},{n:'二等',v:t.second},
+    {n:'软卧',v:t.softSleep},{n:'硬卧',v:t.hardSleep},{n:'硬座',v:t.hardSeat},{n:'无座',v:t.noSeat},
+  ];
+  const ht = hasTicket(t);
+  const hct = hasCommonTicket(t);
+  const minPrice = getMinAvailablePrice(t);
+  const tooltip = priceTooltipHTML(t);
+  const isRealPrice = t.prices && Object.keys(t.prices).length > 0;
+  const pricePrefix = isRealPrice ? '¥' : '≈¥';
+  let ticketBadge = '';
+  if (!t.canBuy) {
+    ticketBadge = '<span style="color:var(--text3);font-size:.72em;margin-left:6px">暂停发售</span>';
+  } else if (hct) {
+    ticketBadge = '<span style="color:var(--success);font-size:.72em;margin-left:6px">✓ 有票</span>';
+  } else if (ht) {
+    ticketBadge = '<span style="color:var(--accent3);font-size:.72em;margin-left:6px">仅商务/一等</span>';
+  } else {
+    ticketBadge = '<span style="color:var(--error);font-size:.72em;margin-left:6px">暂无余票</span>';
+  }
+  return `
+    <div class="train-card ${ht?'has-ticket':'no-ticket'}" id="tc-${idx}">
+      <div class="train-top">
+        <div>
+          <span class="train-no">${t.trainNo}</span>
+          <span class="train-type type-${tp}">${tl}</span>
+          ${ticketBadge}
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="price-tip" style="color:var(--accent);font-size:.82em;font-weight:600;cursor:help">${pricePrefix}${minPrice}起<span class="tip-content">${tooltip}</span></span>
+          <span style="font-size:.75em;color:var(--text2)">${t.fromStation} → ${t.toStation}</span>
+        </div>
+      </div>
+      <div class="train-times">
+        <div class="time-block"><div class="t">${t.startTime}</div><div class="s">${t.fromStation}</div></div>
+        <div class="time-arrow">
+          <div class="dots">${Array(5).fill('<span class="dot"></span>').join('')}</div>
+          <div class="dur">${fmtDur(t.duration)}</div>
+        </div>
+        <div class="time-block"><div class="t">${t.arriveTime}</div><div class="s">${t.toStation}</div></div>
+      </div>
+      <div class="seats">
+        ${seats.map(s => {const h=s.v&&s.v!=='无'&&s.v!=='--';return `<span class="seat ${h?'has':'no'}"><span class="stype">${s.n}</span>${s.v||'--'}</span>`;}).join('')}
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button onclick="event.stopPropagation();showScheduleModal('${t.trainCode}','${t.fromStationCode}','${t.toStationCode}','${t.trainNo}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">📋 时刻表</button>
+        <button onclick="event.stopPropagation();showBuyLong('${t.trainNo}','${t.trainCode}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">🎯 买长乘短</button>
+      </div>
+      <div id="tt-${idx}" class="timetable"></div>
+    </div>`;
+}
+
+// ========== 时刻表弹窗 ==========
+async function showScheduleModal(trainCode, fromCode, toCode, trainNo) {
+  const m = document.getElementById('modal');
+  const c = document.getElementById('modalContent');
+  c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>📋 ${trainNo} 时刻表</h2>
+    <div class="loading show"><div class="spinner"></div><p style="color:var(--text2)">查询中...</p></div>`;
+  m.classList.add('show');
+
+  try {
+    const date = document.getElementById('travelDate').value;
+    const r = await fetch(`/api/schedule?trainNo=${trainCode}&date=${date}&fromCode=${fromCode}&toCode=${toCode}`);
+    const d = await r.json();
+    if (d.status===0 && d.data && d.data.length) {
+      c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+        <h2>📋 ${trainNo} 列车时刻表</h2>
+        <p style="color:var(--text2);font-size:.82em;margin-bottom:10px">共 ${d.data.length} 个停靠站</p>
+        <table class="tt-table">
+          <thead><tr><th>站序</th><th>站名</th><th>到达</th><th>出发</th><th>停靠</th></tr></thead>
+          <tbody>${d.data.map(s=>`<tr>
+            <td>${s.stationNo}</td>
+            <td class="${s.isStart||s.isEnd?'current':''}">${s.stationName} ${s.isStart?'🚩始发':s.isEnd?'🏁终到':''}</td>
+            <td class="tt-time">${s.isStart?'---':s.arriveTime}</td>
+            <td class="tt-time">${s.isEnd?'---':s.startTime}</td>
+            <td>${s.isStart||s.isEnd?'---':(s.stopoverTime||'---')}</td>
+          </tr>`).join('')}</tbody>
+        </table>`;
+    } else {
+      c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+        <h2>📋 ${trainNo} 时刻表</h2>
+        <div class="empty-state"><div class="icon">😕</div><h3>未查到时刻表</h3><p>${d.error||'请确认车次号正确'}</p></div>`;
+    }
+  } catch (e) {
+    c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+      <h2>📋 ${escapeHTML(trainNo)} 时刻表</h2>
+      <div class="empty-state"><div class="icon">⚠️</div><h3>查询失败</h3><p>${escapeHTML(e.message)}</p></div>`;
+  }
+}
+
+// ========== 时刻表独立查询 ==========
+async function querySchedule() {
+  const trainNoInput = document.getElementById('scheduleTrainNo').value.trim().toUpperCase();
+  if (!trainNoInput) { alert('请输入车次号'); return; }
+
+  const el = document.getElementById('scheduleResult');
+  el.innerHTML = `<div class="loading show"><div class="spinner"></div><p style="color:var(--text2)">正在查询 ${trainNoInput} 时刻表...</p></div>`;
+
+  const date = document.getElementById('travelDate').value;
+
+  try {
+    const r = await fetch(`/api/schedule-by-no?trainNo=${encodeURIComponent(trainNoInput)}&date=${date}`);
+    const d = await r.json();
+    if (d.status === 0 && d.data && d.data.stops && d.data.stops.length) {
+      renderScheduleResult(el, d.data.trainNo || trainNoInput, d.data.stops);
+    } else {
+      el.innerHTML = `<div class="empty-state"><div class="icon">😕</div><h3>未找到车次 ${trainNoInput}</h3><p>${d.error || '请确认车次号正确（如 G2、D31、K102）'}</p></div>`;
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>查询失败</h3><p>${e.message}</p></div>`;
+  }
+}
+
+function renderScheduleResult(el, trainNo, stops) {
+  el.innerHTML = `
+    <div class="route-card">
+      <div class="route-head">
+        <div class="route-name">📋 ${trainNo} 列车时刻表</div>
+        <div class="route-badge badge-direct">${stops.length} 站</div>
+      </div>
+      <table class="tt-table">
+        <thead><tr><th>站序</th><th>站名</th><th>到达</th><th>出发</th><th>停靠</th></tr></thead>
+        <tbody>${stops.map(s=>`<tr>
+          <td>${s.stationNo}</td>
+          <td class="${s.isStart||s.isEnd?'current':''}">${s.stationName} ${s.isStart?'🚩始发':s.isEnd?'🏁终到':''}</td>
+          <td class="tt-time">${s.isStart?'---':s.arriveTime}</td>
+          <td class="tt-time">${s.isEnd?'---':s.startTime}</td>
+          <td>${s.isStart||s.isEnd?'---':(s.stopoverTime||'---')}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+// ========== 买长乘短自动查询 ==========
+async function showBuyLong(trainNo, trainCode) {
+  const fromCode = document.getElementById('fromCode').value;
+  const toCode = document.getElementById('toCode').value;
+  const fromName = document.getElementById('fromInput').value;
+  const toName = document.getElementById('toInput').value;
+  const date = document.getElementById('travelDate').value;
+
+  const m = document.getElementById('modal');
+  const c = document.getElementById('modalContent');
+  c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+    <h2>🎯 买长乘短 - ${trainNo}</h2>
+    <div class="loading show"><div class="spinner"></div><p style="color:var(--text2)">正在查询更远站点的余票...</p></div>`;
+  m.classList.add('show');
+
+  try {
+    const sr = await fetch(`/api/schedule?trainNo=${trainCode}&date=${date}&fromCode=${fromCode}&toCode=${toCode}`);
+    const sd = await sr.json();
+    if (sd.status !== 0 || !sd.data) {
+      c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+        <h2>🎯 买长乘短 - ${escapeHTML(trainNo)}</h2>
+        <div class="tip-box">无法获取该车次的时刻表数据</div>`;
+      return;
+    }
+
+    const stops = sd.data;
+    const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/,'')));
+    const furtherStops = stops.filter((s, i) => i > toIdx);
+
+    if (!furtherStops.length) {
+      c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+        <h2>🎯 买长乘短 - ${trainNo}</h2>
+        <div class="tip-box">该车次 ${toName} 已是终点站，无法买长乘短</div>`;
+      return;
+    }
+
+    let results = [];
+    for (const stop of furtherStops) {
+      const stationEntry = Object.values(allStations).find(s => s.name === stop.stationName);
+      if (!stationEntry) continue;
+
+      try {
+        const tr = await fetch(`/api/ticket?from=${fromCode}&to=${stationEntry.code}&date=${date}`);
+        const td = await tr.json();
+        if (td.status === 0 && td.data) {
+          const sameTrain = td.data.find(t => t.trainNo === trainNo);
+          if (sameTrain && hasTicket(sameTrain)) {
+            results.push({
+              endStation: stop.stationName,
+              endCode: stationEntry.code,
+              train: sameTrain,
+              stopsAway: furtherStops.indexOf(stop) + 1,
+            });
+          }
+        }
+      } catch (e) { /* skip */ }
+    }
+
+    if (results.length) {
+      c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+        <h2>🎯 买长乘短 - ${trainNo}</h2>
+        <p style="color:var(--text2);font-size:.85em;margin-bottom:10px">
+          找到 <span style="color:var(--success);font-weight:600">${results.length}</span> 个买长乘短方案！
+          购买到更远站点的票，在 <span style="color:var(--accent)">${toName}</span> 提前下车。
+        </p>
+        ${results.map(r => {
+          const seats = [
+            {n:'商务',v:r.train.business},{n:'一等',v:r.train.first},{n:'二等',v:r.train.second},
+            {n:'软卧',v:r.train.softSleep},{n:'硬卧',v:r.train.hardSleep},{n:'硬座',v:r.train.hardSeat},{n:'无座',v:r.train.noSeat},
+          ];
+          return `<div class="route-card" style="margin-bottom:8px">
+            <div class="route-head">
+              <div class="route-name">${fromName} → ${r.endStation}（在${toName}下车）</div>
+              <div class="route-badge badge-trick">${r.stopsAway}站更远</div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;margin:6px 0">
+              <span style="font-family:monospace;font-weight:600">${r.train.startTime}</span>
+              <span style="color:var(--text2)">→</span>
+              <span style="font-family:monospace">${r.train.arriveTime}</span>
+            </div>
+            <div class="seats">
+              ${seats.map(s=>{const h=s.v&&s.v!=='无'&&s.v!=='--';return `<span class="seat ${h?'has':'no'}"><span class="stype">${s.n}</span>${s.v||'--'}</span>`;}).join('')}
+            </div>
+            <div class="tip-box">购买 ${fromName}→${r.endStation} 的 ${trainNo} 次列车，在 ${toName} 下车。票价可能略高于直达票。</div>
+          </div>`;
+        }).join('')}`;
+    } else {
+      c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+        <h2>🎯 买长乘短 - ${trainNo}</h2>
+        <div class="empty-state"><div class="icon">😕</div>
+        <h3>未找到可行方案</h3>
+        <p>该车次到更远站点的票也已售完，建议尝试候补或其他车次。</p></div>`;
+    }
+  } catch (e) {
+    c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
+      <h2>🎯 买长乘短</h2>
+      <div class="empty-state"><div class="icon">⚠️</div><h3>查询失败</h3><p>${escapeHTML(e.message)}</p></div>`;
+  }
+}
+
+// ========== 多策略方案 ==========
+async function computeStrategies(trains, fromCode, toCode, fromName, toName, date) {
+  const strategies = [];
+
+  // 1. 直达有票
+  const directAvail = trains.filter(t => t.canBuy && hasCommonTicket(t));
+  if (directAvail.length) {
+    strategies.push({ name:'✅ 直达（有票）', type:'direct', trains:directAvail,
+      desc:`找到 ${directAvail.length} 个有票直达车次，可直接在12306购票`, priority:0 });
+  }
+
+  // 2. 直达无票（可候补）
+  const directWait = trains.filter(t => t.canBuy && !hasCommonTicket(t));
+  if (directWait.length) {
+    strategies.push({ name:'⏳ 直达（可候补）', type:'waitlist', trains:directWait,
+      desc:`${directWait.length} 个车次暂无余票，可在12306提交候补订单`, priority:1 });
+  }
+
+  // 3. 买长乘短 - 自动查询
+  showProgress('正在查询买长乘短方案...', 70);
+  const buyLongResults = await autoBuyLong(trains, fromCode, toCode, date);
+  if (buyLongResults.length) {
+    strategies.push({ name:'🎯 买长乘短（有票）', type:'buyLong', trains:buyLongResults.map(r=>r.train),
+      desc:`找到 ${buyLongResults.length} 个买长乘短方案，买到更远站点在${toName}下车`,
+      tip: buyLongResults.slice(0,5).map(r=>`${r.train.trainNo}: 买到${r.endStation}，在${toName}下车`).join('\n'),
+      priority:2 });
+  }
+
+  // 4 & 5. 中转换乘 + 分段购票 - 共享同一次 /api/transfer 请求，避免重复调用导致限流
+  showProgress('正在搜索换乘/分段方案...', 80);
+  let transferApiData = [];
+  try {
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+    const data = await resp.json();
+    if (data.status === 0 && data.data) {
+      transferApiData = data.data;
+    }
+  } catch (e) {
+    console.error('Transfer API failed:', e);
+  }
+
+  // 中转换乘
+  if (transferApiData.length) {
+    strategies.push({ name:'🔄 中转换乘（有票）', type:'transfer', trains:[],
+      desc:`找到 ${transferApiData.length} 个中转站，可自由搭配前后程`,
+      tip: transferApiData.map(r =>
+        `经${r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
+      ).join('\n'),
+      transferData: transferApiData,
+      priority:2.5 });
+  }
+
+  // 分段购票 - 复用同一次换乘数据
+  if (transferApiData.length) {
+    const segResults = transferApiData.map(function(r) {
+      return {
+        hub: r.hub,
+        hubCode: r.hubCode,
+        leg1Count: r.leg1Count,
+        leg2Count: r.leg2Count,
+        leg1: r.leg1,
+        leg2: r.leg2,
+        compatibility: r.compatibility,
+      };
+    });
+    strategies.push({ name:'✂️ 分段购票（有票）', type:'segmented', trains:[],
+      desc:`找到 ${segResults.length} 个分段点，可自由搭配前后程车票`,
+      tip: segResults.slice(0,3).map(r =>
+        `经${r.hub}分段：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
+      ).join('\n'),
+      segData: segResults,
+      priority:3 });
+  }
+
+  // 6. 买短乘长 - 实际查询
+  showProgress('正在查询买短乘长方案...', 90);
+  const buyShortResults = await autoBuyShort(trains, fromCode, toCode, fromName, toName, date);
+  if (buyShortResults.length) {
+    strategies.push({ name:'📝 买短乘长（有票）', type:'buyShort', trains:buyShortResults.map(r=>r.train),
+      desc:`找到 ${buyShortResults.length} 个买短乘长方案，先买短途票上车再补票到${toName}`,
+      tip: buyShortResults.slice(0,5).map(r=>`${r.train.trainNo}: 买到${r.endStation}，补票到${toName}`).join('\n'),
+      buyShortData: buyShortResults,
+      priority:4 });
+  }
+
+  strategies.sort((a,b) => a.priority - b.priority);
+  renderStrategies(strategies);
+}
+
+// ========== 中转换乘查询 ==========
+async function searchTransfer(fromCode, toCode, date) {
+  try {
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+    const data = await resp.json();
+    if (data.status === 0 && data.data) {
+      return data.data;
+    }
+  } catch (e) {
+    console.error('Transfer search failed:', e);
+  }
+  return [];
+}
+
+async function autoBuyLong(trains, fromCode, toCode, date) {
+  const results = [];
+  const toName = document.getElementById('toInput').value;
+  const checkTrains = trains.filter(t => t.canBuy).slice(0, 10);
+  const checkedPairs = new Set();
+
+  for (const t of checkTrains) {
+    try {
+      const sr = await fetch(`/api/schedule?trainNo=${t.trainCode}&date=${date}&fromCode=${fromCode}&toCode=${t.toStationCode}`);
+      const sd = await sr.json();
+      if (sd.status !== 0 || !sd.data) continue;
+
+      const stops = sd.data;
+      const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/,'')));
+      if (toIdx < 0) continue;
+
+      const furtherStops = stops.slice(toIdx + 1);
+      if (!furtherStops.length) continue;
+
+      // 遍历所有更远站点（从近到远），找到第一个有票的即可
+      for (const stop of furtherStops) {
+        const endStation = Object.values(allStations).find(s => s.name === stop.stationName);
+        if (!endStation) continue;
+        const pairKey = fromCode + '_' + endStation.code;
+        if (checkedPairs.has(pairKey)) continue;
+        checkedPairs.add(pairKey);
+
+        try {
+          const tr = await fetch(`/api/ticket?from=${fromCode}&to=${endStation.code}&date=${date}`);
+          const td = await tr.json();
+          if (td.status !== 0 || !td.data) continue;
+
+          const sameTrain = td.data.find(x => x.trainNo === t.trainNo);
+          if (sameTrain && hasTicket(sameTrain)) {
+            results.push({ train: sameTrain, endStation: stop.stationName });
+            break; // 找到一个即可，跳出内层循环
+          }
+        } catch (e) { /* skip */ }
+      }
+    } catch (e) { /* skip */ }
+  }
+  return results;
+}
+
+// ========== 分段购票查询 ==========
+async function searchSegmented(fromCode, toCode, fromName, toName, date) {
+  try {
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+    const data = await resp.json();
+    if (data.status === 0 && data.data) {
+      // 直接使用 API 返回的 leg1/leg2/compatibility 结构
+      // 与中转换乘数据格式完全一致，支持左右双列面板
+      return data.data.map(function(r) {
+        return {
+          hub: r.hub,
+          hubCode: r.hubCode,
+          leg1Count: r.leg1Count,
+          leg2Count: r.leg2Count,
+          leg1: r.leg1,
+          leg2: r.leg2,
+          compatibility: r.compatibility,
+        };
+      });
+    }
+  } catch (e) {
+    console.error('Segmented search failed:', e);
+  }
+  return [];
+}
+
+// ========== 买短乘长自动查询 ==========
+async function autoBuyShort(trains, fromCode, toCode, fromName, toName, date) {
+  const results = [];
+  const seenTrains = new Set();
+  const checkTrains = trains.filter(t => t.canBuy).slice(0, 8);
+
+  for (const t of checkTrains) {
+    try {
+      const sr = await fetch(`/api/schedule?trainNo=${t.trainCode}&date=${date}&fromCode=${fromCode}&toCode=${t.toStationCode}`);
+      const sd = await sr.json();
+      if (sd.status !== 0 || !sd.data) continue;
+
+      const stops = sd.data;
+      const fromIdx = stops.findIndex(s => s.stationName.includes(fromName.replace(/站$/,'')));
+      const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/,'')));
+      if (fromIdx < 0 || toIdx <= fromIdx) continue;
+
+      // 查找中间站（买短的目的地）- 取倒数第二个站
+      const midStops = stops.slice(fromIdx + 1, toIdx);
+      if (!midStops.length) continue;
+
+      // 尝试多个中间站（从近到远）
+      for (let mi = midStops.length - 1; mi >= 0 && results.length < 5; mi--) {
+        const targetMid = midStops[mi];
+        const midStation = Object.values(allStations).find(s => s.name === targetMid.stationName);
+        if (!midStation || seenTrains.has(t.trainNo)) continue;
+
+        const tr = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
+        const td = await tr.json();
+        if (td.status !== 0 || !td.data) continue;
+
+        const sameTrain = td.data.find(x => x.trainNo === t.trainNo);
+        if (sameTrain && hasTicket(sameTrain)) {
+          results.push({ train: sameTrain, endStation: targetMid.stationName, midCode: midStation.code });
+          seenTrains.add(t.trainNo);
+          break; // 每个车次只取一个最优方案
+        }
+      }
+    } catch (e) { /* skip */ }
+  }
+  return results;
+}
+
+// ========== 每个策略卡片的排序/筛选状态 ==========
+const stratState = {};
+
+function initStratState(idx) {
+  if (!stratState[idx]) {
+    stratState[idx] = { sort: 'time', asc: true, depStart: '', depEnd: '', arrStart: '', arrEnd: '' };
+  }
+}
+
+function setStratSort(idx, key) {
+  initStratState(idx);
+  const s = stratState[idx];
+  if (s.sort === key) { s.asc = !s.asc; } else { s.sort = key; s.asc = true; }
+  renderStrategyCard(idx);
+}
+
+function setStratFilter(idx, field, val) {
+  initStratState(idx);
+  stratState[idx][field] = val;
+  renderStrategyCard(idx);
+}
+
+function clearStratFilter(idx, field) {
+  initStratState(idx);
+  stratState[idx][field] = '';
+  renderStrategyCard(idx);
+}
+
+function clearAllStratFilters(idx) {
+  stratState[idx] = { sort: 'time', asc: true, depStart: '', depEnd: '', arrStart: '', arrEnd: '' };
+  renderStrategyCard(idx);
+}
+
+function sortFilterTrains(trains, st) {
+  let list = [...trains];
+  const depS = st.depStart ? timeToMinutes(st.depStart) : -1;
+  const depE = st.depEnd ? timeToMinutes(st.depEnd) : -1;
+  const arrS = st.arrStart ? timeToMinutes(st.arrStart) : -1;
+  const arrE = st.arrEnd ? timeToMinutes(st.arrEnd) : -1;
+
+  if (depS >= 0 || depE >= 0) {
+    const s = depS >= 0 ? depS : 0;
+    const e = depE >= 0 ? depE : 1440;
+    if (s <= e) list = list.filter(t => { const m = timeToMinutes(t.startTime); return m >= s && m <= e; });
+    else list = list.filter(t => { const m = timeToMinutes(t.startTime); return m >= s || m <= e; });
+  }
+  if (arrS >= 0 || arrE >= 0) {
+    const s = arrS >= 0 ? arrS : 0;
+    const e = arrE >= 0 ? arrE : 1440;
+    if (s <= e) list = list.filter(t => { const m = timeToMinutes(t.arriveTime); return m >= s && m <= e; });
+    else list = list.filter(t => { const m = timeToMinutes(t.arriveTime); return m >= s || m <= e; });
+  }
+
+  list.sort((a, b) => {
+    let cmp = 0;
+    switch (st.sort) {
+      case 'time': cmp = timeToMinutes(a.startTime) - timeToMinutes(b.startTime); break;
+      case 'arrive': cmp = timeToMinutes(a.arriveTime) - timeToMinutes(b.arriveTime); break;
+      case 'duration':
+        const da = (a.duration||'99:99').split(':'), db = (b.duration||'99:99').split(':');
+        cmp = (parseInt(da[0])*60+parseInt(da[1])) - (parseInt(db[0])*60+parseInt(db[1]));
+        break;
+      case 'price': cmp = estimatePrice(a) - estimatePrice(b); break;
+    }
+    return st.asc ? cmp : -cmp;
+  });
+  return list;
+}
+
+function stratSortBtns(idx, keys, labels, curSort, curAsc) {
+  return keys.map(k =>
+    '<button class="sort-btn '+(curSort===k?'active':'')+'" onclick="setStratSort('+idx+',\''+k+'\')">'+labels[k]+' '+(curSort===k?(curAsc?'↑':'↓'):'↑')+'</button>'
+  ).join('');
+}
+
+function stratFilterRow(idx, st) {
+  return '<div class="sf-row" style="margin-top:6px">'
+    + '<div class="sf-group" style="min-width:160px">'
+    + '<label class="sf-label">🕐 出发时间</label>'
+    + '<div class="time-range">'
+    + '<input type="time" value="'+st.depStart+'" onchange="setStratFilter('+idx+',\'depStart\',this.value)" style="flex:1">'
+    + '<span class="range-sep">~</span>'
+    + '<input type="time" value="'+st.depEnd+'" onchange="setStratFilter('+idx+',\'depEnd\',this.value)" style="flex:1">'
+    + '<button class="clear-filter" onclick="clearStratFilter('+idx+',\'depStart\');clearStratFilter('+idx+',\'depEnd\')">✕</button>'
+    + '</div></div>'
+    + '<div class="sf-group" style="min-width:160px">'
+    + '<label class="sf-label">🕕 到达时间</label>'
+    + '<div class="time-range">'
+    + '<input type="time" value="'+st.arrStart+'" onchange="setStratFilter('+idx+',\'arrStart\',this.value)" style="flex:1">'
+    + '<span class="range-sep">~</span>'
+    + '<input type="time" value="'+st.arrEnd+'" onchange="setStratFilter('+idx+',\'arrEnd\',this.value)" style="flex:1">'
+    + '<button class="clear-filter" onclick="clearStratFilter('+idx+',\'arrStart\');clearStratFilter('+idx+',\'arrEnd\')">✕</button>'
+    + '</div></div></div>';
+}
+
+function stratFilterChips(idx, st, filtered, total) {
+  const hasFilter = st.depStart || st.depEnd || st.arrStart || st.arrEnd;
+  if (!hasFilter) return '';
+  return '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">'
+    + '<span class="filter-count">显示 '+filtered+'/'+total+'</span>'
+    + '<button class="clear-filter" onclick="clearAllStratFilters('+idx+')" style="font-size:.72em">清除筛选</button>'
+    + '</div>';
+}
+
+function stratControlsHTML(idx, type, st) {
+  var trainLabels = {time:'出发时间',arrive:'到达时间',duration:'耗时',price:'价格'};
+  // segmented 和 transfer 都使用双列面板，排序针对 leg1 列表
+  var sortKeys = ['time','arrive','duration','price'];
+  var sortLabels = trainLabels;
+  return '<div class="sort-filter-panel" style="margin-top:8px;padding:10px">'
+    + '<div class="sf-row"><div class="sf-group">'
+    + '<label class="sf-label">📊 排序</label>'
+    + '<div class="sort-btns">'+stratSortBtns(idx, sortKeys, sortLabels, st.sort, st.asc)+'</div>'
+    + '</div></div>'
+    + stratFilterRow(idx, st)
+    + '</div>';
+}
+
+var _currentStrategies = [];
+
+function renderStrategyCard(idx) {
+  var s = _currentStrategies[idx];
+  if (!s) return;
+  var el = document.getElementById('strat-card-'+idx);
+  if (!el) return;
+  el.innerHTML = buildStrategyContent(idx, s);
+}
+
+function buildStrategyContent(idx, s) {
+  initStratState(idx);
+  var st = stratState[idx];
+  var content = '';
+
+  content += stratControlsHTML(idx, s.type, st);
+
+  // trains-based strategies
+  if (s.trains && s.trains.length) {
+    var realAvail = s.type === 'waitlist'
+      ? s.trains.filter(function(t){ return t.canBuy; })
+      : s.trains.filter(function(t){ return t.canBuy && hasCommonTicket(t); });
+    var filtered = sortFilterTrains(realAvail, st);
+    content += stratFilterChips(idx, st, filtered.length, realAvail.length);
+    content += '<div class="route-trains" style="margin-top:6px">';
+    var showList = filtered.slice(0, 15);
+    for (var ti = 0; ti < showList.length; ti++) {
+      var t = showList[ti];
+      var avail = getAvailableSeats(t);
+      var seatStr = avail.map(function(x){ return x.label; }).join('/');
+      var minP = getMinAvailablePrice(t);
+      var tip = priceTooltipHTML(t);
+      var isReal = t.prices && Object.keys(t.prices).length > 0;
+      var pfx = isReal ? '¥' : '≈¥';
+      content += '<span class="route-train-chip has-t price-tip" onclick="showScheduleModal(\''+t.trainCode+'\',\''+t.fromStationCode+'\',\''+t.toStationCode+'\',\''+t.trainNo+'\')">'
+        + t.trainNo+' '+t.startTime+'→'+t.arriveTime
+        + ' <span style="color:var(--accent);font-size:.85em">'+pfx+minP+'起</span>'
+        + ' <span style="color:var(--success);font-weight:600">'+seatStr+'</span>'
+        + '<span class="tip-content">'+tip+'</span></span>';
+    }
+    if (filtered.length > 15) content += '<span class="route-train-chip">...等'+filtered.length+'个</span>';
+    if (filtered.length === 0) content += '<span style="color:var(--text3);font-size:.82em">无符合条件的车次</span>';
+    content += '</div>';
+  }
+
+  // transfer - 使用共享的左右双列面板组件
+  if (s.transferData && s.transferData.length) {
+    for (var ri = 0; ri < s.transferData.length; ri++) {
+      var r = s.transferData[ri];
+      var hubId = 'hub_' + idx + '_' + ri;
+      content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
+      content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      content += '<div style="font-weight:600">🔄 经 <span style="color:var(--accent)">'+r.hub+'</span> 换乘</div>';
+      content += '<span style="font-size:.75em;color:var(--text2)">'+r.leg1Count+'趟前程 · '+r.leg2Count+'趟后程 · 点选前程自动筛选可衔接后程</span>';
+      content += '</div>';
+      content += buildDualLegPanel(r, { hubId: hubId, leg1Label: '第一段（出发）', leg2Label: '第二段（到达）' });
+      content += '</div>';
+    }
+  }
+
+  // segmented - 使用共享的左右双列面板组件（与中转换乘相同布局）
+  if (s.segData && s.segData.length) {
+    for (var si = 0; si < s.segData.length; si++) {
+      var sr = s.segData[si];
+      var segHubId = 'seg_' + idx + '_' + si;
+      var totalCompat = 0;
+      if (sr.compatibility) {
+        var compatKeys = Object.keys(sr.compatibility);
+        for (var ck = 0; ck < compatKeys.length; ck++) {
+          totalCompat += (sr.compatibility[compatKeys[ck]] || []).length;
+        }
+      }
+      // 对 leg1 排序：生成排序后的索引数组（保留原始索引用于 compatibility 查询）
+      var sortedIndices = sr.leg1.map(function(t, i) { return { train: t, origIdx: i }; });
+      sortedIndices.sort(function(a, b) {
+        var cmp = 0;
+        switch (st.sort) {
+          case 'time': cmp = timeToMinutes(a.train.startTime) - timeToMinutes(b.train.startTime); break;
+          case 'arrive': cmp = timeToMinutes(a.train.arriveTime) - timeToMinutes(b.train.arriveTime); break;
+          case 'duration':
+            var da = (a.train.duration||'99:99').split(':'), db = (b.train.duration||'99:99').split(':');
+            cmp = (parseInt(da[0])*60+parseInt(da[1])) - (parseInt(db[0])*60+parseInt(db[1]));
+            break;
+          case 'price': cmp = estimatePrice(a.train) - estimatePrice(b.train); break;
+        }
+        return st.asc ? cmp : -cmp;
+      });
+      // 筛选出发/到达时间
+      if (st.depStart || st.depEnd) {
+        var ds = st.depStart ? timeToMinutes(st.depStart) : 0;
+        var de = st.depEnd ? timeToMinutes(st.depEnd) : 1440;
+        if (ds <= de) sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.startTime); return m>=ds && m<=de; });
+        else sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.startTime); return m>=ds || m<=de; });
+      }
+      if (st.arrStart || st.arrEnd) {
+        var as = st.arrStart ? timeToMinutes(st.arrStart) : 0;
+        var ae = st.arrEnd ? timeToMinutes(st.arrEnd) : 1440;
+        if (as <= ae) sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.arriveTime); return m>=as && m<=ae; });
+        else sortedIndices = sortedIndices.filter(function(x){ var m=timeToMinutes(x.train.arriveTime); return m>=as || m<=ae; });
+      }
+      // 构建排过序的 leg1 和原始索引映射
+      var sortedLeg1 = sortedIndices.map(function(x) { return x.train; });
+      var sortedOrigIndices = sortedIndices.map(function(x) { return x.origIdx; });
+
+      content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
+      content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      content += '<div style="font-weight:600">✂️ 经 <span style="color:var(--accent)">'+sr.hub+'</span> 分段购票</div>';
+      content += '<span style="font-size:.75em;color:var(--text2)">'+sr.leg1Count+'趟前程 · '+sr.leg2Count+'趟后程 · '+totalCompat+'个可搭配组合 · 点选前程自动筛选可衔接后程</span>';
+      content += '</div>';
+      content += buildDualLegPanelSorted(sr, sortedLeg1, sortedOrigIndices, {
+        hubId: segHubId,
+        leg1Label: '第一段（出发）',
+        leg2Label: '第二段（到达）',
+        note: '💡 分段购票：分别购买两张独立车票，需在'+sr.hub+'出站再进站，两段车票独立存在',
+      });
+      content += '</div>';
+    }
+  }
+
+  // buyShort
+  if (s.buyShortData && s.buyShortData.length) {
+    var bsTrains = s.buyShortData.map(function(r){ return r.train; });
+    var bsFiltered = sortFilterTrains(bsTrains, st);
+    content += stratFilterChips(idx, st, bsFiltered.length, s.buyShortData.length);
+
+    var bsNos = {};
+    for (var bsi = 0; bsi < bsFiltered.length; bsi++) bsNos[bsFiltered[bsi].trainNo] = true;
+    var bsData = s.buyShortData.filter(function(r){ return bsNos[r.train.trainNo]; });
+
+    content += '<div style="margin-top:8px">';
+    for (var bi = 0; bi < bsData.length; bi++) {
+      var br = bsData[bi];
+      var avail2 = getAvailableSeats(br.train);
+      var seatStr2 = avail2.map(function(x){ return x.label; }).join('/');
+      var price2 = getMinAvailablePrice(br.train);
+      var tip2 = priceTooltipHTML(br.train);
+      var isReal2 = br.train.prices && Object.keys(br.train.prices).length > 0;
+      var pfx2 = isReal2 ? '¥' : '≈¥';
+      var seats2 = [
+        {n:'商务',v:br.train.business},{n:'一等',v:br.train.first},{n:'二等',v:br.train.second},
+        {n:'软卧',v:br.train.softSleep},{n:'硬卧',v:br.train.hardSleep},{n:'硬座',v:br.train.hardSeat},{n:'无座',v:br.train.noSeat},
+      ];
+      content += '<div style="padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border);margin-bottom:6px">';
+      content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+      content += '<span style="font-family:monospace;font-weight:700;font-size:.9em">'+br.train.trainNo+'</span>';
+      content += '<div style="display:flex;align-items:center;gap:8px">';
+      content += '<span class="price-tip" style="color:var(--accent);font-size:.78em;font-weight:600;cursor:help">'+pfx2+price2+'起<span class="tip-content">'+tip2+'</span></span>';
+      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(39,174,96,.1);border-radius:4px;color:var(--success);font-weight:600">'+seatStr2+'</span>';
+      content += '</div></div>';
+      content += '<div style="display:flex;gap:10px;align-items:center;margin:4px 0">';
+      content += '<span style="font-family:monospace;font-weight:600">'+br.train.startTime+'</span>';
+      content += '<span style="color:var(--text2)">→</span>';
+      content += '<span style="font-family:monospace">'+br.train.arriveTime+'</span>';
+      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(230,126,34,.1);border-radius:4px;color:var(--accent)">买到'+br.endStation+'</span>';
+      content += '</div>';
+      content += '<div class="seats" style="margin-top:4px">';
+      for (var si2 = 0; si2 < seats2.length; si2++) {
+        var sv = seats2[si2];
+        var has = sv.v && sv.v !== '无' && sv.v !== '--';
+        content += '<span class="seat '+(has?'has':'no')+'"><span class="stype">'+sv.n+'</span>'+(sv.v||'--')+'</span>';
+      }
+      content += '</div>';
+      content += '<div style="margin-top:4px;font-size:.75em;color:var(--text2)">⚠️ 到站后需补票至目的地，可能无座</div>';
+      content += '</div>';
+    }
+    content += '</div>';
+  }
+
+  if (s.tip) {
+    content += '<div class="tip-box" style="margin-top:8px">'+s.tip.replace(/\n/g,'<br>')+'</div>';
+  }
+
+  return content;
+}
+
+// ========== 共享组件：左右双列面板（中转换乘 & 分段购票复用） ==========
+
+// 全局状态：每个 hubId 对应的选中 leg1/leg2 索引
+var _dualPanelState = {}; // { hubId: { leg1: displayIdx, leg2: displayIdx } }
+var _dualPanelOrigIdx = {}; // { hubId: [origIdx, ...] } 排序后的原始索引映射
+
+// 构建单趟车次行（leg1 或 leg2）
+function buildLegRow(t, hubId, leg, idx, options) {
+  options = options || {};
+  var seats = seatTagsHTML(t);
+  var price = getMinAvailablePrice(t);
+  var tip = priceTooltipHTML(t);
+  var isReal = t.prices && Object.keys(t.prices).length > 0;
+  var pfx = isReal ? '¥' : '≈¥';
+  var panelState = _dualPanelState[hubId] || {};
+  var isSelected = panelState[leg] === idx;
+  var bg = isSelected ? 'background:rgba(230,126,34,.12);border-left:3px solid var(--accent)' : 'border-left:3px solid transparent';
+  var onClick = ' onclick="selectDualPanel(\''+hubId+'\',\''+leg+'\','+idx+')"';
+
+  var row = '<div'+onClick+' style="display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;'+bg+';transition:all .15s">';
+  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">'+t.trainNo+'</span>';
+  row += '<span style="font-family:monospace;font-size:.95em">'+t.startTime+'</span>';
+  row += '<span style="color:var(--text3)">→</span>';
+  row += '<span style="font-family:monospace;font-size:.95em">'+t.arriveTime+'</span>';
+  row += '<span style="margin-left:auto">'+seats+'</span>';
+  row += '<span class="price-tip" style="color:var(--accent);font-weight:600;min-width:45px;text-align:right;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
+  row += '</div>';
+  return row;
+}
+
+// 构建左右双列面板 HTML
+// hubData: { hub, hubCode, leg1, leg2, compatibility, leg1Count, leg2Count }
+// options: { hubId, leg1Label, leg2Label, note }
+function buildDualLegPanel(hubData, options) {
+  var hubId = options.hubId;
+  var leg1Label = options.leg1Label || '第一段（出发）';
+  var leg2Label = options.leg2Label || '第二段（到达）';
+  var note = options.note || '';
+
+  var content = '';
+  content += '<div style="display:flex;gap:10px">';
+  // 左列：第一段
+  content += '<div style="flex:1;min-width:0">';
+  content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg1Label+'</div>';
+  content += '<div id="'+hubId+'_leg1" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
+  for (var i = 0; i < hubData.leg1.length; i++) {
+    content += buildLegRow(hubData.leg1[i], hubId, 'leg1', i);
+  }
+  content += '</div></div>';
+  // 右列：第二段
+  content += '<div style="flex:1;min-width:0">';
+  content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg2Label+'<span id="'+hubId+'_filter_hint" style="margin-left:6px;color:var(--accent);font-size:.9em"></span></div>';
+  content += '<div id="'+hubId+'_leg2" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
+  for (var j = 0; j < hubData.leg2.length; j++) {
+    content += buildLegRow(hubData.leg2[j], hubId, 'leg2', j);
+  }
+  content += '</div></div>';
+  content += '</div>';
+  // 汇总条：选中后显示总时间和总花费
+  content += '<div id="'+hubId+'_summary" style="margin-top:8px;display:none;padding:8px 12px;background:rgba(230,126,34,.06);border:1px solid rgba(230,126,34,.15);border-radius:8px;font-size:.82em"></div>';
+  if (note) {
+    content += '<div style="margin-top:6px;font-size:.75em;color:var(--text2)">'+note+'</div>';
+  }
+  return content;
+}
+
+// 构建排序后的左右双列面板（分段购票专用）
+// sortedLeg1: 排序后的 leg1 数组
+// sortedOrigIndices: 排序后每个位置对应的原始索引（用于 compatibility 查询）
+function buildDualLegPanelSorted(hubData, sortedLeg1, sortedOrigIndices, options) {
+  var hubId = options.hubId;
+  var leg1Label = options.leg1Label || '第一段（出发）';
+  var leg2Label = options.leg2Label || '第二段（到达）';
+  var note = options.note || '';
+
+  // 存储原始索引映射，供点击回调使用
+  _dualPanelOrigIdx[hubId] = sortedOrigIndices;
+
+  var content = '';
+  content += '<div style="display:flex;gap:10px">';
+  // 左列：第一段（排序后）
+  content += '<div style="flex:1;min-width:0">';
+  content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg1Label+'</div>';
+  content += '<div id="'+hubId+'_leg1" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
+  for (var i = 0; i < sortedLeg1.length; i++) {
+    content += buildLegRow(sortedLeg1[i], hubId, 'leg1', i);
+  }
+  content += '</div></div>';
+  // 右列：第二段
+  content += '<div style="flex:1;min-width:0">';
+  content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg2Label+'<span id="'+hubId+'_filter_hint" style="margin-left:6px;color:var(--accent);font-size:.9em"></span></div>';
+  content += '<div id="'+hubId+'_leg2" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
+  for (var j = 0; j < hubData.leg2.length; j++) {
+    content += buildLegRow(hubData.leg2[j], hubId, 'leg2', j);
+  }
+  content += '</div></div>';
+  content += '</div>';
+  // 汇总条：选中后显示总时间和总花费
+  content += '<div id="'+hubId+'_summary" style="margin-top:8px;display:none;padding:8px 12px;background:rgba(230,126,34,.06);border:1px solid rgba(230,126,34,.15);border-radius:8px;font-size:.82em"></div>';
+  if (note) {
+    content += '<div style="margin-top:6px;font-size:.75em;color:var(--text2)">'+note+'</div>';
+  }
+  return content;
+}
+
+// 点击 leg1 行：选中/取消，刷新 leg2 筛选
+// 点击车次行（leg1 或 leg2）：选中/取消，刷新面板
+function selectDualPanel(hubId, leg, idx) {
+  if (!_dualPanelState[hubId]) _dualPanelState[hubId] = {};
+  if (_dualPanelState[hubId][leg] === idx) {
+    delete _dualPanelState[hubId][leg];
+  } else {
+    _dualPanelState[hubId][leg] = idx;
+    // 切换 leg1 时清除 leg2 选中（因为兼容集变了）
+    if (leg === 'leg1') {
+      delete _dualPanelState[hubId]['leg2'];
+    }
+  }
+  refreshDualPanel(hubId);
+}
+
+// 刷新整个面板（左右两列选中态 + 右列筛选 + 汇总条）
+function refreshDualPanel(hubId) {
+  var parts = hubId.split('_');
+  var stratIdx = parseInt(parts[1]);
+  var hubIdx = parseInt(parts[2]);
+  var s = _currentStrategies[stratIdx];
+  if (!s) return;
+  var r = s.transferData ? s.transferData[hubIdx] : (s.segData ? s.segData[hubIdx] : null);
+  if (!r) return;
+
+  var state = _dualPanelState[hubId] || {};
+  var selectedLeg1Display = state.leg1;
+  var selectedLeg2Display = state.leg2;
+
+  // 将显示索引转换为原始索引
+  var selectedLeg1Orig = selectedLeg1Display;
+  if (_dualPanelOrigIdx[hubId] && selectedLeg1Display !== undefined) {
+    selectedLeg1Orig = _dualPanelOrigIdx[hubId][selectedLeg1Display];
+  }
+
+  // 刷新左列选中态
+  var leg1Container = document.getElementById(hubId + '_leg1');
+  if (leg1Container) {
+    var rows1 = leg1Container.children;
+    for (var i = 0; i < rows1.length; i++) {
+      if (i === selectedLeg1Display) {
+        rows1[i].style.background = 'rgba(230,126,34,.12)';
+        rows1[i].style.borderLeft = '3px solid var(--accent)';
+      } else {
+        rows1[i].style.background = '';
+        rows1[i].style.borderLeft = '3px solid transparent';
+      }
+    }
+  }
+
+  // 刷新右列（筛选 + 选中态）
+  var leg2Container = document.getElementById(hubId + '_leg2');
+  var hintEl = document.getElementById(hubId + '_filter_hint');
+  if (leg2Container) {
+    var html = '';
+    var compatLeg2Indices = [];
+    if (selectedLeg1Orig !== undefined && r.compatibility && r.compatibility[selectedLeg1Orig]) {
+      var compat = r.compatibility[selectedLeg1Orig];
+      var compatSet = {};
+      for (var c = 0; c < compat.length; c++) compatSet[compat[c]] = true;
+      for (var j = 0; j < r.leg2.length; j++) {
+        if (compatSet[j]) {
+          html += buildLegRow(r.leg2[j], hubId, 'leg2', j);
+          compatLeg2Indices.push(j);
+        }
+      }
+      if (hintEl) hintEl.textContent = '✓ 已筛选 ' + compat.length + ' 趟可衔接';
+    } else {
+      for (var j2 = 0; j2 < r.leg2.length; j2++) {
+        html += buildLegRow(r.leg2[j2], hubId, 'leg2', j2);
+      }
+      if (hintEl) hintEl.textContent = '';
+    }
+    leg2Container.innerHTML = html;
+  }
+
+  // 更新汇总条：左右各选一个时显示精确结果
+  var summaryEl = document.getElementById(hubId + '_summary');
+  if (summaryEl) {
+    var t1 = selectedLeg1Orig !== undefined ? r.leg1[selectedLeg1Orig] : null;
+    var t2 = selectedLeg2Display !== undefined ? r.leg2[selectedLeg2Display] : null;
+    if (t1 && t2) {
+      var p1 = getMinAvailablePrice(t1);
+      var p2 = getMinAvailablePrice(t2);
+      var totalPrice = p1 + p2;
+      var hasReal = (t1.prices && Object.keys(t1.prices).length > 0) || (t2.prices && Object.keys(t2.prices).length > 0);
+      var pricePfx = hasReal ? '¥' : '≈¥';
+      // 总时间：leg1耗时 + 换乘间隔 + leg2耗时
+      var leg1Dur = durToMinutes(t1.duration);
+      var leg2Dur = durToMinutes(t2.duration);
+      var arr1Mins = timeToMinutes(t1.arriveTime);
+      var dep2Mins = timeToMinutes(t2.startTime);
+      var gap = dep2Mins - arr1Mins;
+      if (gap < 0) gap += 1440;
+      var totalDur = leg1Dur + gap + leg2Dur;
+      // 换乘间隔显示
+      var gapColor = gap < 60 ? 'var(--error)' : 'var(--success)';
+
+      summaryEl.style.display = '';
+      summaryEl.innerHTML = '<span style="font-weight:600">📊 选中方案</span>'
+        + ' · <span style="color:var(--accent);font-weight:600">'+t1.trainNo+'</span> '+t1.startTime+'→'+t1.arriveTime
+        + ' → <span style="color:var(--accent);font-weight:600">'+t2.trainNo+'</span> '+t2.startTime+'→'+t2.arriveTime
+        + ' · 换乘 <span style="font-weight:600;color:'+gapColor+'">'+gap+'min</span>'
+        + ' · 总耗时 <span style="font-weight:600;color:var(--accent3)">'+fmtMinutes(totalDur)+'</span>'
+        + ' · 总花费 <span style="font-weight:600;color:var(--accent)">'+pricePfx+totalPrice+'</span>';
+    } else if (t1) {
+      // 只选了 leg1，提示选择 leg2
+      summaryEl.style.display = '';
+      summaryEl.innerHTML = '<span style="color:var(--text2)">👆 请在右侧点选第二段车次，查看完整方案的总耗时和总花费</span>';
+    } else {
+      summaryEl.style.display = 'none';
+      summaryEl.innerHTML = '';
+    }
+  }
+}
+
+// 分钟数格式化为 XhYm
+function fmtMinutes(mins) {
+  if (mins < 0) mins = 0;
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  if (h > 0 && m > 0) return h + 'h' + m + 'm';
+  if (h > 0) return h + 'h';
+  return m + 'm';
+}
+
+// 耗时字符串转分钟数（支持 "4:30"、"28:30"）
+function durToMinutes(dur) {
+  if (!dur) return 0;
+  var p = dur.split(':');
+  return (parseInt(p[0]) || 0) * 60 + (parseInt(p[1]) || 0);
+}
+
+function renderStrategies(strategies) {
+  _currentStrategies = strategies;
+  Object.keys(stratState).forEach(function(k){ delete stratState[k]; });
+
+  var el = document.getElementById('strategyList');
+  var statsEl = document.getElementById('strategyStats');
+  var withTicket = strategies.filter(function(s){
+    return (s.trains && s.trains.length > 0) || (s.transferData && s.transferData.length > 0) || (s.segData && s.segData.length > 0) || (s.buyShortData && s.buyShortData.length > 0);
+  }).length;
+
+  statsEl.style.display = 'flex';
+  statsEl.innerHTML = '<div class="stat-card s-green"><div class="num">'+withTicket+'</div><div class="label">可行方案</div></div>'
+    + '<div class="stat-card s-blue"><div class="num">'+strategies.length+'</div><div class="label">策略类型</div></div>';
+
+  el.innerHTML = strategies.map(function(s, idx){
+    var badgeClass = s.type==='direct'?'badge-direct':s.type==='waitlist'?'badge-transfer':s.type==='transfer'?'badge-direct':'badge-trick';
+    var countText = s.trains&&s.trains.length ? s.trains.length+' 个车次'
+      : s.transferData ? s.transferData.reduce(function(sum,r){return sum+r.leg1Count+r.leg2Count;},0)+' 趟车次'
+      : s.segData ? s.segData.reduce(function(sum,r){return sum+r.leg1Count+r.leg2Count;},0)+' 趟车次'
+      : s.buyShortData ? s.buyShortData.length+' 个方案' : '需手动操作';
+
+    return '<div class="route-card">'
+      + '<div class="route-head">'
+      + '<div class="route-name">'+s.name+'</div>'
+      + '<div class="route-badge '+badgeClass+'">'+countText+'</div>'
+      + '</div>'
+      + '<p style="color:var(--text2);font-size:.83em;margin:4px 0">'+s.desc+'</p>'
+      + '<div id="strat-card-'+idx+'">'+buildStrategyContent(idx, s)+'</div>'
+      + '</div>';
+  }).join('');
+}
+
+// Tooltip 定位：确保不溢出视口
+function positionTooltip(trigger, content) {
+  var rect = trigger.getBoundingClientRect();
+  var cw = content.offsetWidth || 200;
+  var ch = content.offsetHeight || 80;
+  var pad = 8;
+  // 默认：居中于触发元素上方
+  var left = rect.left + rect.width / 2 - cw / 2;
+  var top = rect.top - ch - pad;
+  // 上方空间不够 → 放到下方
+  if (top < pad) top = rect.bottom + pad;
+  // 左侧溢出
+  if (left < pad) left = pad;
+  // 右侧溢出
+  if (left + cw > window.innerWidth - pad) left = window.innerWidth - cw - pad;
+  // 下方溢出（兜底）
+  if (top + ch > window.innerHeight - pad) top = window.innerHeight - ch - pad;
+  content.style.left = left + 'px';
+  content.style.top = top + 'px';
+}
+
+// ========== 工具 ==========// ========== 工具 ==========
+function trainType(no) {
+  const p = no.charAt(0).toUpperCase();
+  if (p==='G'||p==='C') return 'g';
+  if (p==='D') return 'd';
+  if (p==='K') return 'k';
+  if (p==='Z') return 'z';
+  if (p==='T') return 't';
+  return 'other';
+}
+
+// 常规席位：二等座、硬座、无座（大多数旅客实际购买的席位）
+const COMMON_SEATS = ['second', 'hardSeat', 'noSeat'];
+// 扩展席位：加上软卧、硬卧（普通列车常用）
+const EXTENDED_SEATS = [...COMMON_SEATS, 'softSleep', 'hardSleep'];
+
+function hasTicket(t) {
+  if (!t) return false;
+  // 优先判断常规席位（二等/硬座/无座）
+  for (const k of COMMON_SEATS) {
+    const v = t[k];
+    if (v && v !== '无' && v !== '--' && v !== '') return true;
+  }
+  // 高铁/动车检查一等座和商务座
+  const tp = trainType(t.trainNo || '');
+  if (tp === 'g' || tp === 'd') {
+    for (const k of ['first', 'business']) {
+      const v = t[k];
+      if (v && v !== '无' && v !== '--' && v !== '') return true;
+    }
+  }
+  // 普通列车检查卧铺
+  for (const k of ['softSleep', 'hardSleep']) {
+    const v = t[k];
+    if (v && v !== '无' && v !== '--' && v !== '') return true;
+  }
+  return false;
+}
+
+// hasCommonTicket 是 hasTicket 的别名（逻辑完全相同）
+const hasCommonTicket = hasTicket;
+
+function fmtDur(dur) {
+  if (!dur) return '--';
+  // 处理中文格式 "4小时30分"、"4小时"、"30分"
+  var cnMatch = dur.match(/(\d+)\s*小时(?:(\d+)\s*分)?/);
+  if (cnMatch) {
+    var ch = parseInt(cnMatch[1]) || 0;
+    var cm = parseInt(cnMatch[2]) || 0;
+    if (ch > 0 && cm > 0) return ch + 'h' + cm + 'm';
+    if (ch > 0) return ch + 'h';
+    return cm + 'm';
+  }
+  // 处理 HH:MM 格式
+  var p = dur.split(':');
+  if (p.length === 2) {
+    var hh = parseInt(p[0], 10), mm = parseInt(p[1], 10);
+    if (hh > 0 && mm > 0) return hh + 'h' + mm + 'm';
+    if (hh > 0) return hh + 'h';
+    return mm + 'm';
+  }
+  return dur;
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('show'); }
+
+// ========== 获取有票的席位类型 ==========
+function getAvailableSeats(t) {
+  const seats = [];
+  const checks = [
+    {key:'business', label:'商务座'},
+    {key:'first', label:'一等座'},
+    {key:'second', label:'二等座'},
+    {key:'softSleep', label:'软卧'},
+    {key:'hardSleep', label:'硬卧'},
+    {key:'hardSeat', label:'硬座'},
+    {key:'noSeat', label:'无座'},
+  ];
+  for (const c of checks) {
+    const v = t[c.key];
+    if (v && v !== '无' && v !== '--' && v !== '') {
+      seats.push({label: c.label, count: v});
+    }
+  }
+  return seats;
+}
+
+// 生成席位标签HTML
+function seatTagsHTML(t) {
+  const avail = getAvailableSeats(t);
+  if (!avail.length) return '';
+  return avail.map(s =>
+    `<span style="font-size:.7em;padding:1px 5px;background:rgba(39,174,96,.08);border:1px solid rgba(39,174,96,.2);border-radius:3px;color:var(--success);margin-left:3px">${s.label}${s.count!=='有'?s.count:''}</span>`
+  ).join('');
+}
+
+// ========== Init ==========
+async function init() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  document.getElementById('travelDate').value = tomorrow.toISOString().split('T')[0];
+  // Set min date to today
+  document.getElementById('travelDate').min = new Date().toISOString().split('T')[0];
+  // Set max date to 15 days from now (12306 limit)
+  const maxDate = new Date();
+  maxDate.setDate(maxDate.getDate() + 15);
+  document.getElementById('travelDate').max = maxDate.toISOString().split('T')[0];
+
+  setupStationInput('fromInput','fromDropdown','fromCode');
+  setupStationInput('toInput','toDropdown','toCode');
+  await loadStations();
+  document.addEventListener('keydown', e => {
+    if (e.key==='Enter' && !document.querySelector('.station-dropdown.show')) {
+      if (currentTab === 'schedule') querySchedule();
+      else doSearch();
+    }
+  });
+
+  // 回到顶部按钮：滚动超过 400px 时显示
+  const backToTopBtn = document.getElementById('backToTop');
+  window.addEventListener('scroll', () => {
+    backToTopBtn.classList.toggle('show', window.scrollY > 400);
+  }, { passive: true });
+
+  // Tooltip JS 定位：hover 时计算位置，避免溢出视口
+  document.addEventListener('mouseover', function(e) {
+    var tipEl = e.target.closest('.price-tip');
+    if (!tipEl) return;
+    var content = tipEl.querySelector('.tip-content');
+    if (!content) return;
+    content.style.display = 'block';
+    positionTooltip(tipEl, content);
+  });
+  document.addEventListener('mouseout', function(e) {
+    var tipEl = e.target.closest('.price-tip');
+    if (!tipEl) return;
+    var content = tipEl.querySelector('.tip-content');
+    if (content) content.style.display = 'none';
+  });
+}
+init();
+</script>
+</body>
+</html>
