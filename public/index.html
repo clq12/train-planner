@@ -1794,14 +1794,33 @@ function renderStrategies(strategies) {
       : s.buyShortData ? s.buyShortData.length+' 个方案' : '需手动操作';
 
     return '<div class="route-card">'
-      + '<div class="route-head">'
+      + '<div class="route-head" style="cursor:pointer" onclick="toggleStrategy('+idx+')">'
       + '<div class="route-name">'+s.name+'</div>'
+      + '<div style="display:flex;align-items:center;gap:8px">'
       + '<div class="route-badge '+badgeClass+'">'+countText+'</div>'
+      + '<span id="strat-toggle-'+idx+'" style="font-size:1em;color:var(--text2);transition:transform .2s;display:inline-block">▾</span>'
       + '</div>'
+      + '</div>'
+      + '<div id="strat-body-'+idx+'">'
       + '<p style="color:var(--text2);font-size:.83em;margin:4px 0">'+s.desc+'</p>'
       + '<div id="strat-card-'+idx+'">'+buildStrategyContent(idx, s)+'</div>'
+      + '</div>'
       + '</div>';
   }).join('');
+}
+
+// 策略卡片最小化/展开
+function toggleStrategy(idx) {
+  var body = document.getElementById('strat-body-' + idx);
+  var arrow = document.getElementById('strat-toggle-' + idx);
+  if (!body || !arrow) return;
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    arrow.style.transform = 'rotate(0deg)';
+  } else {
+    body.style.display = 'none';
+    arrow.style.transform = 'rotate(-90deg)';
+  }
 }
 
 // Tooltip 定位：确保不溢出视口
