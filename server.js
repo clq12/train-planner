@@ -46,6 +46,9 @@ function buildHeaders(cookie, extra = {}) {
 }
 
 // ========== 请求限流 ==========
+// 注意：在 Vercel Serverless 环境中，全局变量不跨实例共享，
+// 限流仅在同一实例内有效。多实例并发时 12306 可能收到突发请求。
+// 如需更好的限流，应使用外部存储（如 Redis）或 Vercel Edge Middleware。
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 300;
 
@@ -369,7 +372,7 @@ function parseYpInfo(ypInfo) {
     const countStr = chunk.substring(8, 10); // 余票数
 
     const priceInFen = parseInt(priceStr, 10);
-    const count = parseInt(countStr, 10);
+    const count = parseInt(countStr, 10); // 余票数（十进制）
     const seatType = typeMap[seatTypeChar];
 
     if (seatType && !isNaN(priceInFen) && priceInFen > 0) {
@@ -481,10 +484,14 @@ app.get('/api/transfer', async (req, res) => {
       }
     }
 
-    const dt = new Date(y, m - 1, d + dayOffset);
-    const ry = dt.getFullYear();
-    const rm = String(dt.getMonth() + 1).padStart(2, '0');
-    const rd = String(dt.getDate()).padStart(2, '0');
+    // 使用 UTC 计算避免服务器时区影响（12306 数据均为北京时间 UTC+8）
+    // 先转为 UTC 时间戳（减去8小时偏移），加上天数偏移，再转回 UTC+8
+    const baseMs = Date.UTC(y, m - 1, d) - 8 * 3600000;
+    const resultMs = baseMs + dayOffset * 86400000 + 8 * 3600000;
+    const resultDate = new Date(resultMs);
+    const ry = resultDate.getUTCFullYear();
+    const rm = String(resultDate.getUTCMonth() + 1).padStart(2, '0');
+    const rd = String(resultDate.getUTCDate()).padStart(2, '0');
     return `${ry}-${rm}-${rd}`;
   }
 
@@ -751,7 +758,14 @@ app.get('/api/schedule', async (req, res) => {
         redirect: 'manual',
         timeout: 10000,
       });
-      const data2 = await resp2.json();
+      const text2 = await resp2.text();
+      let data2;
+      try { data2 = JSON.parse(text2); } catch(e) {
+        if (text2.includes('captcha') || text2.includes('验证') || text2.includes('<html')) {
+          return res.json({ status: 1, error: '12306要求验证码，请稍后重试' });
+        }
+        return res.json({ status: 1, error: '时刻表接口返回非JSON数据' });
+      }
       if (data2.data && data2.data.data) {
         const stops = data2.data.data.map(s => ({
           stationName: s.station_name,
@@ -768,7 +782,14 @@ app.get('/api/schedule', async (req, res) => {
       return res.json({ status: 1, error: '未查到时刻表数据' });
     }
 
-    const data = await resp.json();
+    const text = await resp.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) {
+      if (text.includes('captcha') || text.includes('验证') || text.includes('<html')) {
+        return res.json({ status: 1, error: '12306要求验证码，请稍后重试' });
+      }
+      return res.json({ status: 1, error: '时刻表接口返回非JSON数据' });
+    }
     if (data.data && data.data.data) {
       const stops = data.data.data.map(s => ({
         stationName: s.station_name,
@@ -796,9 +817,6 @@ app.get('/api/health', (req, res) => {
     status: 0,
     message: 'Train Planner API is running',
     time: new Date().toISOString(),
-    cookieCount: Object.keys(cookieJar).length,
-    cookieAge: cookieTime ? Math.round((Date.now() - cookieTime) / 1000) + 's' : 'none',
-    cookieKeys: Object.keys(cookieJar),
   });
 });
 

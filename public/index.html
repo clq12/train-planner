@@ -819,29 +819,29 @@ function trainCardHTML(t, idx) {
     <div class="train-card ${ht?'has-ticket':'no-ticket'}" id="tc-${idx}">
       <div class="train-top">
         <div>
-          <span class="train-no">${t.trainNo}</span>
+          <span class="train-no">${escapeHTML(t.trainNo)}</span>
           <span class="train-type type-${tp}">${tl}</span>
           ${ticketBadge}
         </div>
         <div style="display:flex;align-items:center;gap:10px">
           <span class="price-tip" style="color:var(--accent);font-size:.82em;font-weight:600;cursor:help">${pricePrefix}${minPrice}起<span class="tip-content">${tooltip}</span></span>
-          <span style="font-size:.75em;color:var(--text2)">${t.fromStation} → ${t.toStation}</span>
+          <span style="font-size:.75em;color:var(--text2)">${escapeHTML(t.fromStation)} → ${escapeHTML(t.toStation)}</span>
         </div>
       </div>
       <div class="train-times">
-        <div class="time-block"><div class="t">${t.startTime}</div><div class="s">${t.fromStation}</div></div>
+        <div class="time-block"><div class="t">${escapeHTML(t.startTime)}</div><div class="s">${escapeHTML(t.fromStation)}</div></div>
         <div class="time-arrow">
           <div class="dots">${Array(5).fill('<span class="dot"></span>').join('')}</div>
           <div class="dur">${fmtDur(t.duration)}</div>
         </div>
-        <div class="time-block"><div class="t">${t.arriveTime}</div><div class="s">${t.toStation}</div></div>
+        <div class="time-block"><div class="t">${escapeHTML(t.arriveTime)}</div><div class="s">${escapeHTML(t.toStation)}</div></div>
       </div>
       <div class="seats">
         ${seats.map(s => {const h=s.v&&s.v!=='无'&&s.v!=='--';return `<span class="seat ${h?'has':'no'}"><span class="stype">${s.n}</span>${s.v||'--'}</span>`;}).join('')}
       </div>
       <div style="margin-top:8px;display:flex;gap:6px">
-        <button onclick="event.stopPropagation();showScheduleModal('${t.trainCode}','${t.fromStationCode}','${t.toStationCode}','${t.trainNo}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">📋 时刻表</button>
-        <button onclick="event.stopPropagation();showBuyLong('${t.trainNo}','${t.trainCode}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">🎯 买长乘短</button>
+        <button onclick="event.stopPropagation();showScheduleModal('${escapeHTML(t.trainCode)}','${escapeHTML(t.fromStationCode)}','${escapeHTML(t.toStationCode)}','${escapeHTML(t.trainNo)}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">📋 时刻表</button>
+        <button onclick="event.stopPropagation();showBuyLong('${escapeHTML(t.trainNo)}','${escapeHTML(t.trainCode)}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">🎯 买长乘短</button>
       </div>
       <div id="tt-${idx}" class="timetable"></div>
     </div>`;
@@ -868,9 +868,9 @@ async function showScheduleModal(trainCode, fromCode, toCode, trainNo) {
           <thead><tr><th>站序</th><th>站名</th><th>到达</th><th>出发</th><th>停靠</th></tr></thead>
           <tbody>${d.data.map(s=>`<tr>
             <td>${s.stationNo}</td>
-            <td class="${s.isStart||s.isEnd?'current':''}">${s.stationName} ${s.isStart?'🚩始发':s.isEnd?'🏁终到':''}</td>
-            <td class="tt-time">${s.isStart?'---':s.arriveTime}</td>
-            <td class="tt-time">${s.isEnd?'---':s.startTime}</td>
+            <td class="${s.isStart||s.isEnd?'current':''}">${escapeHTML(s.stationName)} ${s.isStart?'🚩始发':s.isEnd?'🏁终到':''}</td>
+            <td class="tt-time">${s.isStart?'---':escapeHTML(s.arriveTime)}</td>
+            <td class="tt-time">${s.isEnd?'---':escapeHTML(s.startTime)}</td>
             <td>${s.isStart||s.isEnd?'---':(s.stopoverTime||'---')}</td>
           </tr>`).join('')}</tbody>
         </table>`;
@@ -892,7 +892,7 @@ async function querySchedule() {
   if (!trainNoInput) { alert('请输入车次号'); return; }
 
   const el = document.getElementById('scheduleResult');
-  el.innerHTML = `<div class="loading show"><div class="spinner"></div><p style="color:var(--text2)">正在查询 ${trainNoInput} 时刻表...</p></div>`;
+  el.innerHTML = `<div class="loading show"><div class="spinner"></div><p style="color:var(--text2)">正在查询 ${escapeHTML(trainNoInput)} 时刻表...</p></div>`;
 
   const date = document.getElementById('travelDate').value;
 
@@ -902,7 +902,7 @@ async function querySchedule() {
     if (d.status === 0 && d.data && d.data.stops && d.data.stops.length) {
       renderScheduleResult(el, d.data.trainNo || trainNoInput, d.data.stops);
     } else {
-      el.innerHTML = `<div class="empty-state"><div class="icon">😕</div><h3>未找到车次 ${trainNoInput}</h3><p>${d.error || '请确认车次号正确（如 G2、D31、K102）'}</p></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="icon">😕</div><h3>未找到车次 ${escapeHTML(trainNoInput)}</h3><p>${d.error || '请确认车次号正确（如 G2、D31、K102）'}</p></div>`;
     }
   } catch (e) {
     el.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>查询失败</h3><p>${e.message}</p></div>`;
@@ -913,16 +913,16 @@ function renderScheduleResult(el, trainNo, stops) {
   el.innerHTML = `
     <div class="route-card">
       <div class="route-head">
-        <div class="route-name">📋 ${trainNo} 列车时刻表</div>
+        <div class="route-name">📋 ${escapeHTML(trainNo)} 列车时刻表</div>
         <div class="route-badge badge-direct">${stops.length} 站</div>
       </div>
       <table class="tt-table">
         <thead><tr><th>站序</th><th>站名</th><th>到达</th><th>出发</th><th>停靠</th></tr></thead>
         <tbody>${stops.map(s=>`<tr>
           <td>${s.stationNo}</td>
-          <td class="${s.isStart||s.isEnd?'current':''}">${s.stationName} ${s.isStart?'🚩始发':s.isEnd?'🏁终到':''}</td>
-          <td class="tt-time">${s.isStart?'---':s.arriveTime}</td>
-          <td class="tt-time">${s.isEnd?'---':s.startTime}</td>
+          <td class="${s.isStart||s.isEnd?'current':''}">${escapeHTML(s.stationName)} ${s.isStart?'🚩始发':s.isEnd?'🏁终到':''}</td>
+          <td class="tt-time">${s.isStart?'---':escapeHTML(s.arriveTime)}</td>
+          <td class="tt-time">${s.isEnd?'---':escapeHTML(s.startTime)}</td>
           <td>${s.isStart||s.isEnd?'---':(s.stopoverTime||'---')}</td>
         </tr>`).join('')}</tbody>
       </table>
@@ -1001,18 +1001,18 @@ async function showBuyLong(trainNo, trainCode) {
           ];
           return `<div class="route-card" style="margin-bottom:8px">
             <div class="route-head">
-              <div class="route-name">${fromName} → ${r.endStation}（在${toName}下车）</div>
+              <div class="route-name">${escapeHTML(fromName)} → ${escapeHTML(r.endStation)}（在${escapeHTML(toName)}下车）</div>
               <div class="route-badge badge-trick">${r.stopsAway}站更远</div>
             </div>
             <div style="display:flex;gap:12px;align-items:center;margin:6px 0">
-              <span style="font-family:monospace;font-weight:600">${r.train.startTime}</span>
+              <span style="font-family:monospace;font-weight:600">${escapeHTML(r.train.startTime)}</span>
               <span style="color:var(--text2)">→</span>
-              <span style="font-family:monospace">${r.train.arriveTime}</span>
+              <span style="font-family:monospace">${escapeHTML(r.train.arriveTime)}</span>
             </div>
             <div class="seats">
               ${seats.map(s=>{const h=s.v&&s.v!=='无'&&s.v!=='--';return `<span class="seat ${h?'has':'no'}"><span class="stype">${s.n}</span>${s.v||'--'}</span>`;}).join('')}
             </div>
-            <div class="tip-box">购买 ${fromName}→${r.endStation} 的 ${trainNo} 次列车，在 ${toName} 下车。票价可能略高于直达票。</div>
+            <div class="tip-box">购买 ${escapeHTML(fromName)}→${escapeHTML(r.endStation)} 的 ${escapeHTML(trainNo)} 次列车，在 ${escapeHTML(toName)} 下车。票价可能略高于直达票。</div>
           </div>`;
         }).join('')}`;
     } else {
@@ -1174,10 +1174,10 @@ function buildSameTrainSegRow(train, trainNo) {
   var isReal = train.prices && Object.keys(train.prices).length > 0;
   var pfx = isReal ? '¥' : '≈¥';
   var row = '<div style="display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--card);border-radius:6px;border:1px solid var(--border);font-size:.82em">';
-  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">' + train.trainNo + '</span>';
-  row += '<span style="font-family:monospace">' + train.startTime + '</span>';
+  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">' + escapeHTML(train.trainNo) + '</span>';
+  row += '<span style="font-family:monospace">' + escapeHTML(train.startTime) + '</span>';
   row += '<span style="color:var(--text3)">→</span>';
-  row += '<span style="font-family:monospace">' + train.arriveTime + '</span>';
+  row += '<span style="font-family:monospace">' + escapeHTML(train.arriveTime) + '</span>';
   row += '<span style="margin-left:auto">' + seats + '</span>';
   row += '<span class="price-tip" style="color:var(--accent);font-weight:600;min-width:45px;text-align:right;cursor:help">' + pfx + price + '<span class="tip-content">' + tip + '</span></span>';
   row += '</div>';
@@ -1464,7 +1464,7 @@ function buildStrategyContent(idx, s) {
       var tip = priceTooltipHTML(t);
       var isReal = t.prices && Object.keys(t.prices).length > 0;
       var pfx = isReal ? '¥' : '≈¥';
-      content += '<span class="route-train-chip has-t price-tip" onclick="showScheduleModal(\''+t.trainCode+'\',\''+t.fromStationCode+'\',\''+t.toStationCode+'\',\''+t.trainNo+'\')">'
+      content += '<span class="route-train-chip has-t price-tip" onclick="showScheduleModal(\''+escapeHTML(t.trainCode)+'\',\''+escapeHTML(t.fromStationCode)+'\',\''+escapeHTML(t.toStationCode)+'\',\''+escapeHTML(t.trainNo)+'\')">'
         + t.trainNo+' '+t.startTime+'→'+t.arriveTime
         + ' <span style="color:var(--accent);font-size:.85em">'+pfx+minP+'起</span>'
         + ' <span style="color:var(--success);font-weight:600">'+seatStr+'</span>'
@@ -1482,7 +1482,7 @@ function buildStrategyContent(idx, s) {
       var hubId = 'hub_' + idx + '_' + ri;
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
-      content += '<div style="font-weight:600">🔄 经 <span style="color:var(--accent)">'+r.hub+'</span> 换乘</div>';
+      content += '<div style="font-weight:600">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘</div>';
       content += '<span style="font-size:.75em;color:var(--text2)">'+r.leg1Count+'趟前程 · '+r.leg2Count+'趟后程 · 点选前程自动筛选可衔接后程</span>';
       content += '</div>';
       content += buildDualLegPanel(r, { hubId: hubId, leg1Label: '第一段（出发）', leg2Label: '第二段（到达）' });
@@ -1500,16 +1500,18 @@ function buildStrategyContent(idx, s) {
       content += '<span style="font-size:.75em;color:var(--text2)">同一趟车 · 不用换乘 · 分别购票</span>';
       content += '</div>';
       // 第一段
+      var segFromName = sr.leg1.fromStation || document.getElementById('fromInput').value;
+      var segToName = sr.leg2.toStation || document.getElementById('toInput').value;
       content += '<div style="margin-bottom:6px">';
-      content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第一段：'+fromName+' → '+sr.midStation+'</div>';
+      content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第一段：'+escapeHTML(segFromName)+' → '+escapeHTML(sr.midStation)+'</div>';
       content += buildSameTrainSegRow(sr.leg1, sr.trainNo);
       content += '</div>';
       // 第二段
       content += '<div>';
-      content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第二段：'+sr.midStation+' → '+toName+'</div>';
+      content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第二段：'+escapeHTML(sr.midStation)+' → '+escapeHTML(segToName)+'</div>';
       content += buildSameTrainSegRow(sr.leg2, sr.trainNo);
       content += '</div>';
-      content += '<div style="margin-top:8px;padding:8px 10px;background:rgba(39,174,96,.06);border-radius:6px;font-size:.75em;color:var(--text2)">💡 同车分段：同一趟车在'+sr.midStation+'拆分购票，无需下车换乘，刷两次身份证即可</div>';
+      content += '<div style="margin-top:8px;padding:8px 10px;background:rgba(39,174,96,.06);border-radius:6px;font-size:.75em;color:var(--text2)">💡 同车分段：同一趟车在'+escapeHTML(sr.midStation)+'拆分购票，无需下车换乘，刷两次身份证即可</div>';
       content += '</div>';
     }
   }
@@ -1539,16 +1541,16 @@ function buildStrategyContent(idx, s) {
       ];
       content += '<div style="padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border);margin-bottom:6px">';
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
-      content += '<span style="font-family:monospace;font-weight:700;font-size:.9em">'+br.train.trainNo+'</span>';
+      content += '<span style="font-family:monospace;font-weight:700;font-size:.9em">'+escapeHTML(br.train.trainNo)+'</span>';
       content += '<div style="display:flex;align-items:center;gap:8px">';
       content += '<span class="price-tip" style="color:var(--accent);font-size:.78em;font-weight:600;cursor:help">'+pfx2+price2+'起<span class="tip-content">'+tip2+'</span></span>';
       content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(39,174,96,.1);border-radius:4px;color:var(--success);font-weight:600">'+seatStr2+'</span>';
       content += '</div></div>';
       content += '<div style="display:flex;gap:10px;align-items:center;margin:4px 0">';
-      content += '<span style="font-family:monospace;font-weight:600">'+br.train.startTime+'</span>';
+      content += '<span style="font-family:monospace;font-weight:600">'+escapeHTML(br.train.startTime)+'</span>';
       content += '<span style="color:var(--text2)">→</span>';
-      content += '<span style="font-family:monospace">'+br.train.arriveTime+'</span>';
-      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(230,126,34,.1);border-radius:4px;color:var(--accent)">买到'+br.endStation+'</span>';
+      content += '<span style="font-family:monospace">'+escapeHTML(br.train.arriveTime)+'</span>';
+      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(230,126,34,.1);border-radius:4px;color:var(--accent)">买到'+escapeHTML(br.endStation)+'</span>';
       content += '</div>';
       content += '<div class="seats" style="margin-top:4px">';
       for (var si2 = 0; si2 < seats2.length; si2++) {
@@ -1590,10 +1592,10 @@ function buildLegRow(t, hubId, leg, idx, options) {
   var onClick = ' onclick="selectDualPanel(\''+hubId+'\',\''+leg+'\','+idx+')"';
 
   var row = '<div'+onClick+' style="display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;'+bg+';transition:all .15s">';
-  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">'+t.trainNo+'</span>';
-  row += '<span style="font-family:monospace;font-size:.95em">'+t.startTime+'</span>';
+  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">'+escapeHTML(t.trainNo)+'</span>';
+  row += '<span style="font-family:monospace;font-size:.95em">'+escapeHTML(t.startTime)+'</span>';
   row += '<span style="color:var(--text3)">→</span>';
-  row += '<span style="font-family:monospace;font-size:.95em">'+t.arriveTime+'</span>';
+  row += '<span style="font-family:monospace;font-size:.95em">'+escapeHTML(t.arriveTime)+'</span>';
   row += '<span style="margin-left:auto">'+seats+'</span>';
   row += '<span class="price-tip" style="color:var(--accent);font-weight:600;min-width:45px;text-align:right;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
   row += '</div>';
@@ -1776,8 +1778,8 @@ function refreshDualPanel(hubId) {
 
       summaryEl.style.display = '';
       summaryEl.innerHTML = '<span style="font-weight:600">📊 选中方案</span>'
-        + ' · <span style="color:var(--accent);font-weight:600">'+t1.trainNo+'</span> '+t1.startTime+'→'+t1.arriveTime
-        + ' → <span style="color:var(--accent);font-weight:600">'+t2.trainNo+'</span> '+t2.startTime+'→'+t2.arriveTime
+        + ' · <span style="color:var(--accent);font-weight:600">'+escapeHTML(t1.trainNo)+'</span> '+escapeHTML(t1.startTime)+'→'+escapeHTML(t1.arriveTime)
+        + ' → <span style="color:var(--accent);font-weight:600">'+escapeHTML(t2.trainNo)+'</span> '+escapeHTML(t2.startTime)+'→'+escapeHTML(t2.arriveTime)
         + ' · 换乘 <span style="font-weight:600;color:'+gapColor+'">'+gap+'min</span>'
         + ' · 总耗时 <span style="font-weight:600;color:var(--accent3)">'+fmtMinutes(totalDur)+'</span>'
         + ' · 总花费 <span style="font-weight:600;color:var(--accent)">'+pricePfx+totalPrice+'</span>';
@@ -1827,7 +1829,7 @@ function renderStrategies(strategies) {
     var badgeClass = s.type==='direct'?'badge-direct':s.type==='waitlist'?'badge-transfer':s.type==='transfer'?'badge-direct':'badge-trick';
     var countText = s.trains&&s.trains.length ? s.trains.length+' 个车次'
       : s.transferData ? s.transferData.reduce(function(sum,r){return sum+r.leg1Count+r.leg2Count;},0)+' 趟车次'
-      : s.segData ? s.segData.reduce(function(sum,r){return sum+r.leg1Count+r.leg2Count;},0)+' 趟车次'
+      : s.segData ? s.segData.length+' 个方案'
       : s.buyShortData ? s.buyShortData.length+' 个方案' : '需手动操作';
 
     return '<div class="route-card">'
@@ -1899,14 +1901,14 @@ const EXTENDED_SEATS = [...COMMON_SEATS, 'softSleep', 'hardSleep'];
 
 function hasTicket(t) {
   if (!t) return false;
-  // 优先判断常规席位（二等/硬座/无座）
+  // 先检查常规席位（二等座/硬座/无座）
   for (const k of COMMON_SEATS) {
     const v = t[k];
     if (v && v !== '无' && v !== '--' && v !== '') return true;
   }
   // 高铁/动车检查一等座和商务座
   const tp = trainType(t.trainNo || '');
-  if (tp === 'g' || tp === 'd') {
+  if (tp === 'g' || tp === 'd' || tp === 'c') {
     for (const k of ['first', 'business']) {
       const v = t[k];
       if (v && v !== '无' && v !== '--' && v !== '') return true;
@@ -1920,8 +1922,15 @@ function hasTicket(t) {
   return false;
 }
 
-// hasCommonTicket 是 hasTicket 的别名（逻辑完全相同）
-const hasCommonTicket = hasTicket;
+// hasCommonTicket: 只检查常规席位（二等座/硬座/无座），不含商务座/一等座
+function hasCommonTicket(t) {
+  if (!t) return false;
+  for (const k of COMMON_SEATS) {
+    const v = t[k];
+    if (v && v !== '无' && v !== '--' && v !== '') return true;
+  }
+  return false;
+}
 
 function fmtDur(dur) {
   if (!dur) return '--';
