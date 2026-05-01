@@ -1,6 +1,6 @@
 {
   "name": "train-planner",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "多策略购票方案规划工具 —— 直达 / 换乘 / 买长乘短 / 买短乘长 / 分段购票",
   "main": "server.js",
   "bin": "server.js",
