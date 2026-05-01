@@ -1088,13 +1088,39 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
     }
   } catch (e) { console.error('BuyLong failed:', e); }
 
-  // 4. 中转换乘 - 不同车次换乘
+  // 4. 中转换乘 - 不同车次换乘（流式进度）
   try {
     showProgress('正在搜索中转换乘方案...', 80);
     const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
-    const data = await resp.json();
-    if (data.status === 0 && data.data && data.data.length) {
-      const transferResults = data.data;
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let transferResults = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // 按行分割 JSON
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // 最后一个可能不完整
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt.type === 'progress') {
+            const pct = 80 + Math.round((evt.current / evt.total) * 15);
+            showProgress(`正在查询中转站 ${evt.hub}（${evt.current}/${evt.total}，已找到${evt.found}个方案）...`, pct);
+          } else if (evt.type === 'result') {
+            if (evt.status === 0 && evt.data && evt.data.length) {
+              transferResults = evt.data;
+            }
+          }
+        } catch (e) { /* ignore parse errors */ }
+      }
+    }
+
+    if (transferResults.length) {
       strategies.push({ name:'🔄 中转换乘（有票）', type:'transfer', trains:[],
         desc:`找到 ${transferResults.length} 个中转站，可自由搭配前后程`,
         tip: transferResults.map(r =>

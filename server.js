@@ -432,11 +432,20 @@ function parseTicketData(data) {
   });
 }
 
-// ========== 中转换乘搜索（支持跨日期） ==========
+// ========== 中转换乘搜索（支持跨日期，流式进度） ==========
 app.get('/api/transfer', async (req, res) => {
   const { from, to, date, date2, transferStation } = req.query;
   if (!from || !to || !date) {
     return res.status(400).json({ status: 1, error: '缺少参数: from, to, date' });
+  }
+
+  // 流式响应：设置 headers
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no'); // nginx 不缓冲
+
+  function sendEvent(obj) {
+    res.write(JSON.stringify(obj) + '\n');
   }
 
   // 计算第二天日期
@@ -547,8 +556,13 @@ app.get('/api/transfer', async (req, res) => {
 
     const results = [];
     const maxTransferChecks = transferStation ? 1 : 20;
+    const hubsToCheck = transferCandidates.slice(0, maxTransferChecks);
 
-    for (const hub of transferCandidates.slice(0, maxTransferChecks)) {
+    for (let hi = 0; hi < hubsToCheck.length; hi++) {
+      const hub = hubsToCheck[hi];
+      // 发送进度
+      sendEvent({ type: 'progress', current: hi + 1, total: hubsToCheck.length, hub: hub.name, found: results.length });
+
       try {
         // 第一段：from → 中转站（出发日期）
         const cookies1 = await getCookies();
@@ -628,10 +642,12 @@ app.get('/api/transfer', async (req, res) => {
     }
 
     console.log(`✅ Transfer: ${results.length} hubs (${from}→${to}, ${date}~${dateNext})`);
-    res.json({ status: 0, data: results });
+    sendEvent({ type: 'result', status: 0, data: results });
+    res.end();
   } catch (err) {
     console.error('Transfer search failed:', err.message);
-    res.status(500).json({ status: 1, error: '换乘查询失败: ' + err.message });
+    sendEvent({ type: 'result', status: 1, error: '换乘查询失败: ' + err.message });
+    res.end();
   }
 });
 
