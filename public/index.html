@@ -195,6 +195,12 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .leg-row .lr-time{font-family:monospace;font-size:.95em}
 .leg-row .lr-seats{margin-left:auto;display:flex;flex-wrap:wrap;gap:3px}
 .leg-row .lr-price{min-width:45px;text-align:right}
+.leg-row.no-ticket{display:none}
+.show-all .leg-row.no-ticket{display:flex;opacity:.5}
+.show-all .leg-row.no-ticket .lr-no::after{content:'无票';font-size:.65em;color:var(--error);margin-left:4px;font-weight:400}
+.hub-ticket-toggle{padding:3px 10px;border-radius:12px;font-size:.72em;cursor:pointer;border:1.5px solid var(--border);background:var(--bg);color:var(--text2);font-weight:600;transition:all .2s}
+.hub-ticket-toggle:hover{border-color:var(--accent);color:var(--accent)}
+.hub-ticket-toggle.active{border-color:var(--accent);color:var(--accent);background:rgba(230,126,34,.08)}
 
 @media(max-width:640px){
   .dual-panel{flex-direction:column;gap:8px}
@@ -1197,14 +1203,12 @@ function buildSameTrainSegRow(train, trainNo) {
   var isReal = train.prices && Object.keys(train.prices).length > 0;
   var pfx = isReal ? '¥' : '≈¥';
   var hasAnyTicket = train.canBuy && hasTicket(train);
-  var row = '<div class="leg-row" style="background:var(--card);border-radius:6px;border:1px solid var(--border)' + (hasAnyTicket ? '' : ';opacity:.5') + '">';
+  var cls = 'leg-row' + (hasAnyTicket ? '' : ' no-ticket');
+  var row = '<div class="'+cls+'" style="background:var(--card);border-radius:6px;border:1px solid var(--border)">';
   row += '<span class="lr-no">' + escapeHTML(train.trainNo) + '</span>';
   row += '<span class="lr-time">' + escapeHTML(train.startTime) + '</span>';
   row += '<span style="color:var(--text3)">→</span>';
   row += '<span class="lr-time">' + escapeHTML(train.arriveTime) + '</span>';
-  if (!hasAnyTicket) {
-    row += '<span style="font-size:.7em;color:var(--error);margin-left:4px">无票</span>';
-  }
   row += '<span class="lr-seats">' + seats + '</span>';
   row += '<span class="lr-price price-tip" style="color:var(--accent);font-weight:600;cursor:help">' + pfx + price + '<span class="tip-content">' + tip + '</span></span>';
   row += '</div>';
@@ -1508,10 +1512,14 @@ function buildStrategyContent(idx, s) {
       var r = s.transferData[ri];
       var hubId = 'hub_' + idx + '_' + ri;
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
-      content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
       content += '<div style="font-weight:600">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘</div>';
-      content += '<span style="font-size:.75em;color:var(--text2)">'+r.leg1Count+'趟前程 · '+r.leg2Count+'趟后程 · 点选前程自动筛选可衔接后程</span>';
-      content += '</div>';
+      content += '<div style="display:flex;align-items:center;gap:8px">';
+      var r1WithTicket = r.leg1.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
+      var r2WithTicket = r.leg2.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
+      content += '<span style="font-size:.75em;color:var(--text2)">'+r1WithTicket+'/'+r.leg1Count+'前程有票 · '+r2WithTicket+'/'+r.leg2Count+'后程有票</span>';
+      content += '<button class="hub-ticket-toggle" id="'+hubId+'_toggle" onclick="toggleHubTickets(\''+hubId+'\')">有票</button>';
+      content += '</div></div>';
       content += buildDualLegPanel(r, { hubId: hubId, leg1Label: '第一段（出发）', leg2Label: '第二段（到达）' });
       content += '</div>';
     }
@@ -1521,20 +1529,23 @@ function buildStrategyContent(idx, s) {
   if (s.segData && s.segData.length) {
     for (var si = 0; si < s.segData.length; si++) {
       var sr = s.segData[si];
+      var segHubId = 'seg_' + idx + '_' + si;
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
-      content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
       content += '<div style="font-weight:600">✂️ <span style="font-family:monospace;font-weight:700">'+sr.trainNo+'</span> 经 <span style="color:var(--accent)">'+sr.midStation+'</span> 同车分段</div>';
-      content += '<span style="font-size:.75em;color:var(--text2)">同一趟车 · 不用换乘 · 分别购票</span>';
-      content += '</div>';
+      content += '<div style="display:flex;align-items:center;gap:8px">';
+      content += '<span style="font-size:.75em;color:var(--text2)">同一趟车 · 不用换乘</span>';
+      content += '<button class="hub-ticket-toggle" id="'+segHubId+'_toggle" onclick="toggleHubTickets(\''+segHubId+'\')">有票</button>';
+      content += '</div></div>';
       // 第一段
       var segFromName = sr.leg1.fromStation || document.getElementById('fromInput').value;
       var segToName = sr.leg2.toStation || document.getElementById('toInput').value;
-      content += '<div style="margin-bottom:6px">';
+      content += '<div style="margin-bottom:6px" id="'+segHubId+'_leg1">';
       content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第一段：'+escapeHTML(segFromName)+' → '+escapeHTML(sr.midStation)+'</div>';
       content += buildSameTrainSegRow(sr.leg1, sr.trainNo);
       content += '</div>';
       // 第二段
-      content += '<div>';
+      content += '<div id="'+segHubId+'_leg2">';
       content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第二段：'+escapeHTML(sr.midStation)+' → '+escapeHTML(segToName)+'</div>';
       content += buildSameTrainSegRow(sr.leg2, sr.trainNo);
       content += '</div>';
@@ -1617,17 +1628,14 @@ function buildLegRow(t, hubId, leg, idx, options) {
   var isSelected = panelState[leg] === idx;
   var hasAnyTicket = t.canBuy && hasTicket(t);
   var bg = isSelected ? 'background:rgba(230,126,34,.12);border-left:3px solid var(--accent)' : 'border-left:3px solid transparent';
-  var opacity = hasAnyTicket ? '' : 'opacity:.5;';
+  var cls = 'leg-row' + (hasAnyTicket ? '' : ' no-ticket');
   var onClick = ' onclick="selectDualPanel(\''+hubId+'\',\''+leg+'\','+idx+')"';
 
-  var row = '<div'+onClick+' class="leg-row" style="'+bg+opacity+'">';
+  var row = '<div'+onClick+' class="'+cls+'" style="'+bg+'">';
   row += '<span class="lr-no">'+escapeHTML(t.trainNo)+'</span>';
   row += '<span class="lr-time">'+escapeHTML(t.startTime)+'</span>';
   row += '<span style="color:var(--text3)">→</span>';
   row += '<span class="lr-time">'+escapeHTML(t.arriveTime)+'</span>';
-  if (!hasAnyTicket) {
-    row += '<span style="font-size:.7em;color:var(--error);margin-left:4px">无票</span>';
-  }
   row += '<span class="lr-seats">'+seats+'</span>';
   row += '<span class="lr-price price-tip" style="color:var(--accent);font-weight:600;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
   row += '</div>';
@@ -1709,6 +1717,26 @@ function buildDualLegPanelSorted(hubData, sortedLeg1, sortedOrigIndices, options
   return content;
 }
 
+// 切换中转面板显示模式：有票 / 全部
+var _hubShowAll = {}; // { hubId: true/false }
+function toggleHubTickets(hubId) {
+  _hubShowAll[hubId] = !_hubShowAll[hubId];
+  var container = document.getElementById(hubId + '_leg1');
+  var container2 = document.getElementById(hubId + '_leg2');
+  var btn = document.getElementById(hubId + '_toggle');
+  if (_hubShowAll[hubId]) {
+    if (container) container.classList.add('show-all');
+    if (container2) container2.classList.add('show-all');
+    if (btn) { btn.textContent = '全部'; btn.classList.add('active'); }
+  } else {
+    if (container) container.classList.remove('show-all');
+    if (container2) container2.classList.remove('show-all');
+    if (btn) { btn.textContent = '有票'; btn.classList.remove('active'); }
+  }
+  // 刷新兼容性筛选提示
+  refreshDualPanel(hubId);
+}
+
 // 点击 leg1 行：选中/取消，刷新 leg2 筛选
 // 点击车次行（leg1 或 leg2）：选中/取消，刷新面板
 function selectDualPanel(hubId, leg, idx) {
@@ -1759,8 +1787,9 @@ function refreshDualPanel(hubId) {
         rows1[i].style.background = '';
         rows1[i].style.borderLeft = '3px solid transparent';
       }
-      rows1[i].style.opacity = hasAnyTicket1 ? '' : '0.5';
     }
+    // 保持 show-all 状态
+    if (_hubShowAll[hubId]) leg1Container.classList.add('show-all');
   }
 
   // 刷新右列（筛选 + 选中态）
@@ -1780,7 +1809,14 @@ function refreshDualPanel(hubId) {
         }
       }
       var compatWithTicket = compat.filter(function(j){ return r.leg2[j] && r.leg2[j].canBuy && hasTicket(r.leg2[j]); }).length;
-      if (hintEl) hintEl.textContent = '✓ 已筛选 ' + compat.length + ' 趟可衔接' + (compatWithTicket < compat.length ? '（' + compatWithTicket + '趟有票）' : '');
+      var compatNoTicket = compat.length - compatWithTicket;
+      if (hintEl) {
+        if (compatNoTicket > 0) {
+          hintEl.textContent = '✓ ' + compatWithTicket + '有票/' + compatNoTicket + '无票';
+        } else {
+          hintEl.textContent = '✓ ' + compat.length + '趟有票';
+        }
+      }
     } else {
       for (var j2 = 0; j2 < r.leg2.length; j2++) {
         html += buildLegRow(r.leg2[j2], hubId, 'leg2', j2);
@@ -1788,6 +1824,8 @@ function refreshDualPanel(hubId) {
       if (hintEl) hintEl.textContent = '';
     }
     leg2Container.innerHTML = html;
+    // 保持 show-all 状态
+    if (_hubShowAll[hubId]) leg2Container.classList.add('show-all');
   }
 
   // 更新汇总条：左右各选一个时显示精确结果
@@ -1815,8 +1853,12 @@ function refreshDualPanel(hubId) {
       var t1Has = t1.canBuy && hasTicket(t1);
       var t2Has = t2.canBuy && hasTicket(t2);
       var warn = '';
-      if (!t1Has || !t2Has) {
-        warn = ' · <span style="color:var(--error);font-weight:600">⚠️ ' + (!t1Has ? t1.trainNo : '') + (!t1Has && !t2Has ? '+' : '') + (!t2Has ? t2.trainNo : '') + ' 暂无余票</span>';
+      if (!t1Has && !t2Has) {
+        warn = ' · <span style="color:var(--error);font-weight:600">⚠️ 两段均暂无余票</span>';
+      } else if (!t1Has) {
+        warn = ' · <span style="color:var(--warn);font-weight:600">⚠️ ' + escapeHTML(t1.trainNo) + ' 暂无余票</span>';
+      } else if (!t2Has) {
+        warn = ' · <span style="color:var(--warn);font-weight:600">⚠️ ' + escapeHTML(t2.trainNo) + ' 暂无余票</span>';
       }
 
       summaryEl.style.display = '';
