@@ -563,7 +563,8 @@ app.get('/api/transfer', async (req, res) => {
         if (!data1?.data?.result?.length) continue;
 
         const leg1All = parseTicketData(data1.data);
-        const leg1 = leg1All.filter(t => t.canBuy && hasTicketFn(t));
+        // 不过滤 canBuy，显示全部车次（含无票），由前端标灰
+        const leg1 = leg1All;
         if (leg1.length === 0) continue;
 
         // 第二段：查当天 + 第二天 + 第三天（支持跨日期换乘）
@@ -586,7 +587,8 @@ app.get('/api/transfer', async (req, res) => {
           leg2All.push(...parsed);
         }
 
-        const leg2 = leg2All.filter(t => t.canBuy && hasTicketFn(t));
+        // 不过滤 canBuy，显示全部车次（含无票），由前端标灰
+        const leg2 = leg2All;
         if (leg2.length === 0) continue;
 
         // 构建兼容性映射：每趟 leg1 对应能赶上的 leg2 索引
