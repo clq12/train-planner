@@ -195,34 +195,6 @@ train-planner/
 └── .gitignore
 ```
 
-## 🔨 自行构建可执行文件
-
-```bash
-# 安装构建工具
-npm install -g @yao-pkg/pkg
-
-# 构建所有平台
-npm run build
-
-# 或单独构建某个平台
-npm run build:win     # Windows
-npm run build:mac     # macOS (M系列)
-npm run build:linux   # Linux
-```
-
-构建产物在 `dist/` 目录下。
-
-## 📝 API 接口
-
-| 接口 | 方法 | 参数 | 说明 |
-|------|------|------|------|
-| `/api/stations` | GET | - | 获取全国车站数据 |
-| `/api/ticket` | GET | from, to, date | 查询余票 |
-| `/api/transfer` | GET | from, to, date, transferStation?, date2? | 中转换乘查询（流式NDJSON返回，含实时进度） |
-| `/api/schedule` | GET | trainNo, date, fromCode, toCode | 查询列车时刻表 |
-| `/api/schedule-by-no` | GET | trainNo, date | 按车次号查询时刻表（如G2） |
-| `/api/health` | GET | - | 健康检查 |
-
 ## 📝 数据说明
 
 - 余票数据来自12306官网API，实时更新
