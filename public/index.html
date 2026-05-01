@@ -171,6 +171,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
   .detail-grid{grid-template-columns:1fr}
   .sf-row{flex-direction:column}.sf-group{min-width:0;width:100%}
   .sort-btns{flex-wrap:wrap}
+  .route-train-chip{display:block;margin-bottom:4px;white-space:normal;word-break:break-all}
 }
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d4b896;border-radius:3px}
 
@@ -185,6 +186,24 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .back-to-top.show{opacity:1;transform:translateY(0);pointer-events:auto}
 .back-to-top:hover{box-shadow:0 6px 24px rgba(230,126,34,.5);transform:translateY(-2px)}
 .back-to-top:active{transform:scale(.92)}
+
+/* 换乘双列面板 */
+.dual-panel{display:flex;gap:10px}
+.dual-panel-leg{flex:1;min-width:0}
+.leg-row{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;transition:all .15s;flex-wrap:wrap}
+.leg-row .lr-no{font-family:monospace;font-weight:700;min-width:52px}
+.leg-row .lr-time{font-family:monospace;font-size:.95em}
+.leg-row .lr-seats{margin-left:auto;display:flex;flex-wrap:wrap;gap:3px}
+.leg-row .lr-price{min-width:45px;text-align:right}
+
+@media(max-width:640px){
+  .dual-panel{flex-direction:column;gap:8px}
+  .dual-panel-leg{width:100%}
+  .leg-row{font-size:.75em;padding:8px 6px;gap:4px}
+  .leg-row .lr-no{min-width:44px;font-size:.9em}
+  .leg-row .lr-seats{margin-left:0;width:100%;margin-top:4px}
+  .leg-row .lr-price{min-width:auto}
+}
 </style>
 </head>
 <body>
@@ -488,7 +507,7 @@ async function doSearch() {
       document.getElementById('activeFilters').style.display = 'none';
 
       // 默认只显示有票的车次，如果没有任何有票车次则显示全部
-      const withTickets = currentTrains.filter(t => t.canBuy && hasCommonTicket(t));
+      const withTickets = currentTrains.filter(t => t.canBuy && hasTicket(t));
       const displayTrains = withTickets.length > 0 ? withTickets : currentTrains;
       renderTrainList(displayTrains, fromName, toName, date, withTickets.length > 0);
 
@@ -518,7 +537,7 @@ async function doSearch() {
 
 // ========== 渲染直达车次 ==========
 function renderTrainList(trains, fromName, toName, date, onlyAvailable) {
-  const allCanBuy = currentTrains.filter(t => t.canBuy && hasCommonTicket(t)).length;
+  const allCanBuy = currentTrains.filter(t => t.canBuy && hasTicket(t)).length;
   const types = {};
   const displayList = onlyAvailable ? trains : currentTrains;
   displayList.forEach(t => {
@@ -564,7 +583,7 @@ function applyFiltersWithTrainType() {
 
   // 车次类型筛选
   if (trainTypeFilter === 'canbuy') {
-    filtered = filtered.filter(t => t.canBuy && hasCommonTicket(t));
+    filtered = filtered.filter(t => t.canBuy && hasTicket(t));
   } else if (trainTypeFilter !== 'all') {
     filtered = filtered.filter(t => trainType(t.trainNo) === trainTypeFilter);
   }
@@ -1038,14 +1057,14 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
   const strategies = [];
 
   // 1. 直达有票
-  const directAvail = trains.filter(t => t.canBuy && hasCommonTicket(t));
+  const directAvail = trains.filter(t => t.canBuy && hasTicket(t));
   if (directAvail.length) {
     strategies.push({ name:'✅ 直达（有票）', type:'direct', trains:directAvail,
       desc:`找到 ${directAvail.length} 个有票直达车次，可直接在12306购票`, priority:0 });
   }
 
   // 2. 直达无票（可候补）
-  const directWait = trains.filter(t => t.canBuy && !hasCommonTicket(t));
+  const directWait = trains.filter(t => t.canBuy && !hasTicket(t));
   if (directWait.length) {
     strategies.push({ name:'⏳ 直达（可候补）', type:'waitlist', trains:directWait,
       desc:`${directWait.length} 个车次暂无余票，可在12306提交候补订单`, priority:1 });
@@ -1177,13 +1196,13 @@ function buildSameTrainSegRow(train, trainNo) {
   var tip = priceTooltipHTML(train);
   var isReal = train.prices && Object.keys(train.prices).length > 0;
   var pfx = isReal ? '¥' : '≈¥';
-  var row = '<div style="display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--card);border-radius:6px;border:1px solid var(--border);font-size:.82em">';
-  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">' + escapeHTML(train.trainNo) + '</span>';
-  row += '<span style="font-family:monospace">' + escapeHTML(train.startTime) + '</span>';
+  var row = '<div class="leg-row" style="background:var(--card);border-radius:6px;border:1px solid var(--border)">';
+  row += '<span class="lr-no">' + escapeHTML(train.trainNo) + '</span>';
+  row += '<span class="lr-time">' + escapeHTML(train.startTime) + '</span>';
   row += '<span style="color:var(--text3)">→</span>';
-  row += '<span style="font-family:monospace">' + escapeHTML(train.arriveTime) + '</span>';
-  row += '<span style="margin-left:auto">' + seats + '</span>';
-  row += '<span class="price-tip" style="color:var(--accent);font-weight:600;min-width:45px;text-align:right;cursor:help">' + pfx + price + '<span class="tip-content">' + tip + '</span></span>';
+  row += '<span class="lr-time">' + escapeHTML(train.arriveTime) + '</span>';
+  row += '<span class="lr-seats">' + seats + '</span>';
+  row += '<span class="lr-price price-tip" style="color:var(--accent);font-weight:600;cursor:help">' + pfx + price + '<span class="tip-content">' + tip + '</span></span>';
   row += '</div>';
   return row;
 }
@@ -1393,7 +1412,7 @@ function stratSortBtns(idx, keys, labels, curSort, curAsc) {
 
 function stratFilterRow(idx, st) {
   return '<div class="sf-row" style="margin-top:6px">'
-    + '<div class="sf-group" style="min-width:160px">'
+    + '<div class="sf-group">'
     + '<label class="sf-label">🕐 出发时间</label>'
     + '<div class="time-range">'
     + '<input type="time" value="'+st.depStart+'" onchange="setStratFilter('+idx+',\'depStart\',this.value)" style="flex:1">'
@@ -1401,7 +1420,7 @@ function stratFilterRow(idx, st) {
     + '<input type="time" value="'+st.depEnd+'" onchange="setStratFilter('+idx+',\'depEnd\',this.value)" style="flex:1">'
     + '<button class="clear-filter" onclick="clearStratFilter('+idx+',\'depStart\');clearStratFilter('+idx+',\'depEnd\')">✕</button>'
     + '</div></div>'
-    + '<div class="sf-group" style="min-width:160px">'
+    + '<div class="sf-group">'
     + '<label class="sf-label">🕕 到达时间</label>'
     + '<div class="time-range">'
     + '<input type="time" value="'+st.arrStart+'" onchange="setStratFilter('+idx+',\'arrStart\',this.value)" style="flex:1">'
@@ -1455,7 +1474,7 @@ function buildStrategyContent(idx, s) {
   if (s.trains && s.trains.length) {
     var realAvail = s.type === 'waitlist'
       ? s.trains.filter(function(t){ return t.canBuy; })
-      : s.trains.filter(function(t){ return t.canBuy && hasCommonTicket(t); });
+      : s.trains.filter(function(t){ return t.canBuy && hasTicket(t); });
     var filtered = sortFilterTrains(realAvail, st);
     content += stratFilterChips(idx, st, filtered.length, realAvail.length);
     content += '<div class="route-trains" style="margin-top:6px">';
@@ -1595,13 +1614,13 @@ function buildLegRow(t, hubId, leg, idx, options) {
   var bg = isSelected ? 'background:rgba(230,126,34,.12);border-left:3px solid var(--accent)' : 'border-left:3px solid transparent';
   var onClick = ' onclick="selectDualPanel(\''+hubId+'\',\''+leg+'\','+idx+')"';
 
-  var row = '<div'+onClick+' style="display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;'+bg+';transition:all .15s">';
-  row += '<span style="font-family:monospace;font-weight:700;min-width:52px">'+escapeHTML(t.trainNo)+'</span>';
-  row += '<span style="font-family:monospace;font-size:.95em">'+escapeHTML(t.startTime)+'</span>';
+  var row = '<div'+onClick+' class="leg-row" style="'+bg+'">';
+  row += '<span class="lr-no">'+escapeHTML(t.trainNo)+'</span>';
+  row += '<span class="lr-time">'+escapeHTML(t.startTime)+'</span>';
   row += '<span style="color:var(--text3)">→</span>';
-  row += '<span style="font-family:monospace;font-size:.95em">'+escapeHTML(t.arriveTime)+'</span>';
-  row += '<span style="margin-left:auto">'+seats+'</span>';
-  row += '<span class="price-tip" style="color:var(--accent);font-weight:600;min-width:45px;text-align:right;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
+  row += '<span class="lr-time">'+escapeHTML(t.arriveTime)+'</span>';
+  row += '<span class="lr-seats">'+seats+'</span>';
+  row += '<span class="lr-price price-tip" style="color:var(--accent);font-weight:600;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
   row += '</div>';
   return row;
 }
@@ -1616,9 +1635,9 @@ function buildDualLegPanel(hubData, options) {
   var note = options.note || '';
 
   var content = '';
-  content += '<div style="display:flex;gap:10px">';
+  content += '<div class="dual-panel">';
   // 左列：第一段
-  content += '<div style="flex:1;min-width:0">';
+  content += '<div class="dual-panel-leg">';
   content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg1Label+'</div>';
   content += '<div id="'+hubId+'_leg1" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
   for (var i = 0; i < hubData.leg1.length; i++) {
@@ -1626,7 +1645,7 @@ function buildDualLegPanel(hubData, options) {
   }
   content += '</div></div>';
   // 右列：第二段
-  content += '<div style="flex:1;min-width:0">';
+  content += '<div class="dual-panel-leg">';
   content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg2Label+'<span id="'+hubId+'_filter_hint" style="margin-left:6px;color:var(--accent);font-size:.9em"></span></div>';
   content += '<div id="'+hubId+'_leg2" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
   for (var j = 0; j < hubData.leg2.length; j++) {
@@ -1655,9 +1674,9 @@ function buildDualLegPanelSorted(hubData, sortedLeg1, sortedOrigIndices, options
   _dualPanelOrigIdx[hubId] = sortedOrigIndices;
 
   var content = '';
-  content += '<div style="display:flex;gap:10px">';
+  content += '<div class="dual-panel">';
   // 左列：第一段（排序后）
-  content += '<div style="flex:1;min-width:0">';
+  content += '<div class="dual-panel-leg">';
   content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg1Label+'</div>';
   content += '<div id="'+hubId+'_leg1" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
   for (var i = 0; i < sortedLeg1.length; i++) {
@@ -1665,7 +1684,7 @@ function buildDualLegPanelSorted(hubData, sortedLeg1, sortedOrigIndices, options
   }
   content += '</div></div>';
   // 右列：第二段
-  content += '<div style="flex:1;min-width:0">';
+  content += '<div class="dual-panel-leg">';
   content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg2Label+'<span id="'+hubId+'_filter_hint" style="margin-left:6px;color:var(--accent);font-size:.9em"></span></div>';
   content += '<div id="'+hubId+'_leg2" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
   for (var j = 0; j < hubData.leg2.length; j++) {
