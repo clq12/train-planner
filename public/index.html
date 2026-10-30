@@ -479,8 +479,47 @@ function showProgress(text, pct) {
 }
 function hideProgress() { document.getElementById('progressBar').classList.remove('show'); }
 
+// 按文字解析车站（精确名优先 → 名称前缀 → 拼音前缀/简拼 → 短名优先）
+function pickStationByText(text) {
+  const q = String(text || '').trim();
+  if (!q) return null;
+  const ql = q.toLowerCase();
+  const list = Object.values(allStations);
+  const exact = list.find(s => s.name === q);
+  if (exact) return exact;
+  const cands = list.filter(s =>
+    s.name.startsWith(q) || s.pinyin.startsWith(ql) || s.pinyinShort === ql
+  );
+  if (!cands.length) return null;
+  cands.sort((a, b) =>
+    (a.name.startsWith(q) ? 0 : 1) - (b.name.startsWith(q) ? 0 : 1) ||
+    a.name.length - b.name.length ||
+    a.index - b.index
+  );
+  return cands[0];
+}
+
+// 把输入框文字与隐藏的站码对齐：
+// 用户手动改过文字（没点下拉项）时，站码还停在上一次选择，会查错站。
+function syncStationInputs() {
+  ['from', 'to'].forEach(function (k) {
+    const input = document.getElementById(k + 'Input');
+    const codeEl = document.getElementById(k + 'Code');
+    const text = (input.value || '').trim();
+    if (!text) return;
+    const byCode = Object.values(allStations).find(s => s.code === codeEl.value);
+    if (byCode && byCode.name === text) return;   // 文字与站码一致，不动
+    const hit = pickStationByText(text);
+    if (hit) {
+      input.value = hit.name;
+      codeEl.value = hit.code;
+    }
+  });
+}
+
 // ========== 主搜索 ==========
 async function doSearch() {
+  syncStationInputs();
   const fromCode = document.getElementById('fromCode').value;
   const toCode = document.getElementById('toCode').value;
   const fromName = document.getElementById('fromInput').value;
