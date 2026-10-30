@@ -252,14 +252,32 @@ let stationCacheTime = 0;
 
 function parseStationData(text) {
   const stations = {};
-  // 12306格式: @shortCode|站名|电报码|拼音全拼|拼音首字母|索引|...
-  const regex = /@([^\|]+)\|([^\|]+)\|([^\|]+)\|([^\|]+)\|([^\|]+)\|([^\|]+)/g;
+  // 12306格式（共 11 段）：
+  //   shortCode|站名|电报码|拼音全拼|拼音首字母|索引|城市码|城市名|...
+  //   例：wzn|温州南|VRH|wenzhounan|wzn|1359|0920|温州|||
+  // 城市码/城市名用来做"市内所有出发站"
+  const regex = /@([^\|]+)\|([^\|]+)\|([^\|]+)\|([^\|]+)\|([^\|]+)\|([^\|]+)\|([^\|]*)\|([^\|]*)/g;
   let match;
   while ((match = regex.exec(text)) !== null) {
-    const [, shortCode, name, code, pinyin, pinyinShort, index] = match;
-    stations[code] = { name, code, pinyin, pinyinShort, index: parseInt(index) };
+    const [, shortCode, name, code, pinyin, pinyinShort, index, cityCode, cityName] = match;
+    stations[code] = {
+      name, code, pinyin, pinyinShort,
+      index: parseInt(index),
+      cityCode: cityCode || '',
+      city: cityName || '',
+    };
   }
   return stations;
+}
+
+// 同一个地级市下的所有车站（按热门度排序）
+function cityStationsOf(code) {
+  if (!stationCache || !stationCache[code]) return [];
+  const self = stationCache[code];
+  if (!self.cityCode) return [];
+  return Object.values(stationCache)
+    .filter(s => s.cityCode === self.cityCode)
+    .sort((a, b) => a.index - b.index);
 }
 
 app.get('/api/stations', async (req, res) => {
@@ -285,10 +303,92 @@ app.get('/api/stations', async (req, res) => {
 });
 
 // ========== 余票查询（核心修复） ==========
+// 单站余票查询（带缓存、302 重试），供"市内出发"合并多站时复用
+async function fetchTicketsRaw(fromCode, toCode, date) {
+  const cached = cacheGet(fromCode, toCode, date);
+  if (cached) return cached.data;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const cookies = await getCookies();
+    const url = `${API_BASE}/otn/leftTicket/queryG?leftTicketDTO.train_date=${date}&leftTicketDTO.from_station=${fromCode}&leftTicketDTO.to_station=${toCode}&purpose_codes=ADULT`;
+    const resp = await throttledFetch(url, {
+      headers: buildHeaders(cookies), redirect: 'manual', timeout: 12000,
+    });
+    if (resp.status === 302) { triggerCooldown(2000); await forceRefreshCookies(); continue; }
+    if (resp.status !== 200) continue;
+    let data;
+    try { data = await resp.json(); } catch (e) { return []; }
+    if (!data || !data.data || !data.data.result || !data.data.result.length) return [];
+    const parsed = parseTicketData(data.data);
+    cacheSet(fromCode, toCode, date, { status: 0, data: parsed });
+    return parsed;
+  }
+  return [];
+}
+
+// 同一个地级市下的所有车站（给前端展示用）
+app.get('/api/city-stations', async (req, res) => {
+  const { from } = req.query;
+  if (!from) return res.status(400).json({ status: 1, error: '缺少参数: from' });
+  try {
+    if (!stationCache) {
+      const cookies = await getCookies();
+      const r = await fetch(`${API_BASE}/otn/resources/js/framework/station_name.js?station_version=1.9306`, {
+        headers: buildHeaders(cookies), timeout: 10000,
+      });
+      stationCache = parseStationData(await r.text());
+    }
+    const list = cityStationsOf(from);
+    res.json({
+      status: 0,
+      city: (stationCache[from] || {}).city || '',
+      data: list.map(s => ({ name: s.name, code: s.code })),
+    });
+  } catch (err) {
+    res.status(500).json({ status: 1, error: err.message });
+  }
+});
+
 app.get('/api/ticket', async (req, res) => {
   const { from, to, date } = req.query;
   if (!from || !to || !date) {
     return res.status(400).json({ status: 1, error: '缺少参数: from, to, date' });
+  }
+
+  // 「市内出发」：把这个城市（地级市）所有车站的余票合并返回
+  if (req.query.cityFrom === '1') {
+    if (!stationCache) {
+      try {
+        const cookies0 = await getCookies();
+        const r0 = await fetch(`${API_BASE}/otn/resources/js/framework/station_name.js?station_version=1.9306`, {
+          headers: buildHeaders(cookies0), timeout: 10000,
+        });
+        stationCache = parseStationData(await r0.text());
+      } catch (e) { /* 拿不到站点表就退回单站查询 */ }
+    }
+    const group = cityStationsOf(from);
+    if (group.length > 1) {
+      const limited = group.slice(0, 8);   // 最多 8 个同城站，避免请求爆炸
+      const lists = await Promise.all(limited.map(s => fetchTicketsRaw(s.code, to, date)));
+      const merged = [];
+      const seen = new Set();
+      for (const list of lists) {
+        for (const t of list) {
+          const key = t.trainNo + '|' + t.fromStation;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(t);
+        }
+      }
+      const available = merged.filter(t => t.canBuy && hasTicketFn(t));
+      return res.json({
+        status: 0,
+        data: merged,
+        availableCount: available.length,
+        totalCount: merged.length,
+        cityFrom: limited.map(s => s.name),
+      });
+    }
   }
 
   // 命中缓存直接返回（多策略会反复查同一个区间）

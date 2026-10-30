@@ -247,11 +247,19 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
       <button class="btn-search" id="btnSearch" onclick="doSearch()">🔍 查询</button>
     </div>
     <div class="search-options">
-      <label class="opt-check" title="取消勾选后会查全部枢纽，耗时明显变长">
+      <label class="opt-check" title="勾选后，选温州南会同时查温州、温州北、瑞安等同城所有站">
+        <input type="checkbox" id="useCityFrom" checked>
+        <span>市内出发</span>
+      </label>
+      <label class="opt-check" title="取消勾选则查全部枢纽，覆盖更全但耗时约翻倍">
         <input type="checkbox" id="useCommonHubs" checked>
         <span>使用 20 个常见枢纽</span>
       </label>
-      <span class="opt-hint">取消勾选 = 全部枢纽都查（约 30 个，耗时约翻倍）</span>
+      <label class="opt-check" title="取消勾选则跳过买长乘短 / 买短乘长，查询更省时">
+        <input type="checkbox" id="useShortLong" checked>
+        <span>计算买长乘短 / 买短乘长</span>
+      </label>
+      <span class="opt-hint" id="optHint">市内出发 = 同城所有车站的车次一起列出来</span>
     </div>
   </div>
 
@@ -538,7 +546,7 @@ async function doSearch() {
 
   try {
     showProgress('正在查询12306直达车次...', 20);
-    const resp = await fetch(`/api/ticket?from=${fromCode}&to=${toCode}&date=${date}`);
+    const resp = await fetch(`/api/ticket?from=${fromCode}&to=${toCode}&date=${date}${cityParam()}`);
     const data = await resp.json();
 
     if (data.status === 0 && data.data) {
@@ -1074,7 +1082,7 @@ async function showBuyLong(trainNo, trainCode) {
       const stationEntry = Object.values(allStations).find(s => s.name === stop.stationName);
       if (!stationEntry) return null;
       try {
-        const tr = await fetch(`/api/ticket?from=${fromCode}&to=${stationEntry.code}&date=${date}`);
+        const tr = await fetch(`/api/ticket?from=${fromCode}&to=${stationEntry.code}&date=${date}${cityParam()}`);
         const td = await tr.json();
         if (td.status === 0 && td.data) {
           const sameTrain = td.data.find(t => t.trainNo === trainNo);
@@ -1152,8 +1160,9 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
       desc:`${directWait.length} 个车次暂无余票，可在12306提交候补订单`, priority:1 });
   }
 
-  // 3. 买长乘短 - 自动查询
+  // 3. 买长乘短 - 自动查询（可在界面上关闭）
   try {
+    if (wantShortLong()) {
     showProgress('正在查询买长乘短方案...', 70);
     const buyLongResults = await autoBuyLong(trains, fromCode, toCode, date, (cur, total, station) => {
       const pct = 70 + Math.round((cur / total) * 5);
@@ -1164,6 +1173,7 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
         desc:`找到 ${buyLongResults.length} 个买长乘短方案，买到更远站点在${toName}下车`,
         tip: buyLongResults.slice(0,5).map(r=>`${r.train.trainNo}: 买到${r.endStation}，在${toName}下车`).join('\n'),
         priority:2 });
+    }
     }
   } catch (e) { console.error('BuyLong failed:', e); }
 
@@ -1228,8 +1238,9 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
     }
   } catch (e) { console.error('Segmented failed:', e); }
 
-  // 6. 买短乘长 - 实际查询
+  // 6. 买短乘长 - 实际查询（可在界面上关闭）
   try {
+    if (wantShortLong()) {
     showProgress('正在查询买短乘长方案...', 90);
     const buyShortResults = await autoBuyShort(trains, fromCode, toCode, fromName, toName, date, (cur, total, trainNo) => {
       const pct = 90 + Math.round((cur / total) * 5);
@@ -1242,6 +1253,7 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
         buyShortData: buyShortResults,
         priority:4 });
     }
+    }
   } catch (e) { console.error('BuyShort failed:', e); }
 
   strategies.sort((a,b) => a.priority - b.priority);
@@ -1253,6 +1265,18 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
 function hubParam() {
   var el = document.getElementById('useCommonHubs');
   return (el && !el.checked) ? '&allHubs=1' : '';
+}
+
+// 市内出发参数：勾选时把这个城市（地级市）所有车站一起查
+function cityParam() {
+  var el = document.getElementById('useCityFrom');
+  return (el && el.checked) ? '&cityFrom=1' : '';
+}
+
+// 是否计算买长乘短 / 买短乘长
+function wantShortLong() {
+  var el = document.getElementById('useShortLong');
+  return el ? el.checked : true;
 }
 
 async function searchTransfer(fromCode, toCode, date) {
@@ -1294,7 +1318,7 @@ async function autoBuyLong(trains, fromCode, toCode, date, onProgress) {
             checkedPairs.add(pairKey);
 
             try {
-              const tr = await fetch(`/api/ticket?from=${fromCode}&to=${endStation.code}&date=${date}`);
+              const tr = await fetch(`/api/ticket?from=${fromCode}&to=${endStation.code}&date=${date}${cityParam()}`);
               const td = await tr.json();
               if (td.status !== 0 || !td.data) continue;
 
@@ -1389,7 +1413,7 @@ async function searchSameTrainSegmented(trains, fromCode, toCode, fromName, toNa
 
               try {
                 // 查第一段：from → mid
-                const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
+                const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}${cityParam()}`);
                 const d1 = await r1.json();
                 if (d1.status !== 0 || !d1.data) continue;
                 const leg1Train = d1.data.find(x => x.trainNo === t.trainNo);
@@ -1451,7 +1475,7 @@ async function autoBuyShort(trains, fromCode, toCode, fromName, toName, date, on
             const midStation = Object.values(allStations).find(s => s.name === targetMid.stationName);
             if (!midStation || seenTrains.has(t.trainNo)) continue;
 
-            const tr = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
+            const tr = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}${cityParam()}`);
             const td = await tr.json();
             if (td.status !== 0 || !td.data) continue;
 
