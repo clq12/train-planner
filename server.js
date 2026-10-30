@@ -340,44 +340,74 @@ function hasTicketFn(t) {
   return false;
 }
 
-// ========== 解析 yp_info（票面信息）获取真实票价 ==========
-// yp_info 格式：每10个字符一组，代表一种席别
-//   第0位：席别代码（O=二等座, M=一等座, 9=商务座, 3=硬卧, 4=软卧, 1=硬座, 6=高级软卧, P=特等座, W/0=无座）
-//   第1位：票种（0=成人票等）
-//   第2-7位：票价（单位：分，6位数字，前导零）
-//   第8-9位：余票数量
-function parseYpInfo(ypInfo) {
+// ========== 解析票价串（yp_ex_str）获取真实票价 ==========
+// 注意：12306 已不再在 yp_info(fields[12]) 里放票价 —— 该字段现在是一段 64 字符的加密串，
+// 按旧的"每10字符取6位价格"解析必然得到空对象。真实票价改放在 yp_ex_str(fields[39])。
+// 格式：每 10 个字符一组，代表一种席别
+//   第0位  ：席别代码（9=商务座 M=一等座 O=二等座 D=动卧 4=软卧 3=硬卧 1=硬座 W=无座）
+//   第1-4位：票价整数部分（元）
+//   第5位  ：票价小数部分（角）
+//   第6位  ：标志（0=正常席别，3=无座，票价为同席别价格）
+//   第7-9位：余票数量
+// 例：9199500001M092900021O055300021O055303000
+//     → 商务座1995元(1张) / 一等座929元(21张) / 二等座553元(21张) / 无座553元(0张)
+const PRICE_CHUNK = /^[0-9A-Z]\d{4}\d[03]\d{3}$/;
+
+const PRICE_SEAT_MAP = {
+  '9': 'business',   // 商务座
+  'S': 'business',   // 商务座（备用代码）
+  'M': 'first',      // 一等座
+  'O': 'second',     // 二等座
+  'P': 'special',    // 特等座
+  '6': 'highSoft',   // 高级软卧
+  '4': 'softSleep',  // 软卧
+  '3': 'hardSleep',  // 硬卧
+  '1': 'hardSeat',   // 硬座
+  'D': 'dongwo',     // 动卧（G/C 车次）
+  'J': 'dongwo',     // 动卧上铺（D 车次）
+  'I': 'dongwo',     // 动卧下铺（D 车次）
+};
+
+function isPriceString(s) {
+  if (typeof s !== 'string' || s.length < 10 || s.length % 10 !== 0) return false;
+  for (let i = 0; i < s.length; i += 10) {
+    if (!PRICE_CHUNK.test(s.slice(i, i + 10))) return false;
+  }
+  return true;
+}
+
+// 优先取 yp_ex_str(fields[39])；字段顺序变动时，回退到"段数与 yp_ex 席别数一致"的字段
+function findPriceString(fields) {
+  if (isPriceString(fields[39])) return fields[39];
+  const ypEx = fields[34] || '';
+  const seatCount = Math.floor(ypEx.length / 2);
+  for (let i = 0; i < fields.length; i++) {
+    const s = fields[i];
+    if (isPriceString(s) && (!seatCount || s.length / 10 === seatCount)) return s;
+  }
+  return '';
+}
+
+function parseYpExStr(priceStr) {
   const prices = {};
-  if (!ypInfo || ypInfo.length < 10) return prices;
+  if (!priceStr || priceStr.length % 10 !== 0) return prices;
 
-  const typeMap = {
-    'O': 'second',      // 二等座
-    'M': 'first',       // 一等座
-    '9': 'business',    // 商务座
-    'S': 'business',    // 商务座（备用代码）
-    'P': 'special',     // 特等座
-    '6': 'highSoft',    // 高级软卧
-    '4': 'softSleep',   // 软卧
-    '3': 'hardSleep',   // 硬卧
-    '1': 'hardSeat',    // 硬座
-    'W': 'noSeat',      // 无座
-    '0': 'noSeat',      // 无座（备用代码）
-  };
+  for (let i = 0; i + 10 <= priceStr.length; i += 10) {
+    const chunk = priceStr.substr(i, 10);
+    if (!PRICE_CHUNK.test(chunk)) continue;
 
-  for (let i = 0; i + 10 <= ypInfo.length; i += 10) {
-    const chunk = ypInfo.substring(i, i + 10);
-    const seatTypeChar = chunk[0];
-    // chunk[1] 是票种（成人/儿童等），此处不需要
-    const priceStr = chunk.substring(2, 8); // 6位数字，单位：分
-    const countStr = chunk.substring(8, 10); // 余票数
+    const price = parseInt(chunk.substr(1, 4), 10) + parseInt(chunk[5], 10) / 10;
+    let seatType = PRICE_SEAT_MAP[chunk[0]];
+    if (chunk[6] === '3') seatType = 'noSeat'; // 标志3 = 无座
 
-    const priceInFen = parseInt(priceStr, 10);
-    const count = parseInt(countStr, 10); // 余票数（十进制）
-    const seatType = typeMap[seatTypeChar];
-
-    if (seatType && !isNaN(priceInFen) && priceInFen > 0) {
-      prices[seatType] = Math.round(priceInFen / 100); // 分 → 元
+    if (seatType && !isNaN(price) && price > 0 && !(seatType in prices)) {
+      prices[seatType] = Math.round(price * 10) / 10; // 保留一位小数（12306 票价可能带 .5）
     }
+  }
+
+  // 动卧在 12306 的 D 字头车次里就是"软卧"，但前端没有动卧列，兜底成软卧价
+  if (prices.dongwo && !('softSleep' in prices)) {
+    prices.softSleep = prices.dongwo;
   }
 
   return prices;
@@ -394,8 +424,8 @@ function parseTicketData(data) {
     const fromName = stationMap[fromStationCode] || fromStationCode;
     const toName = stationMap[toStationCode] || toStationCode;
 
-    // 从 yp_info (fields[12]) 解析真实票价
-    const prices = parseYpInfo(fields[12]);
+    // 从 yp_ex_str 解析真实票价（旧 yp_info 已改为加密串，不再含票价）
+    const prices = parseYpExStr(findPriceString(fields));
 
     function fmt(val) {
       if (!val || val === '' || val === '无') return '无';
@@ -427,7 +457,7 @@ function parseTicketData(data) {
       hardSleep: fmt(fields[28]),
       hardSeat: fmt(fields[29]),
       noSeat: fmt(fields[33]),
-      prices, // 真实票价（从yp_info解析）
+      prices, // 真实票价（从 yp_ex_str 解析）
     };
   });
 }

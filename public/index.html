@@ -674,7 +674,7 @@ let currentSort = 'time';
 let sortAsc = true;
 
 // ========== 价格估算系统 ==========
-// 基于12306实际定价规律（备用估算，当yp_info无数据时使用）：
+// 基于12306实际定价规律（备用估算，当 yp_ex_str 无数据时使用）：
 //   G 高铁二等座 ≈ 0.46元/km，一等座 ≈ 1.6倍，商务座 ≈ 3.2倍
 //   C 城际二等座 ≈ 0.46元/km（平均速度较低，停站较多）
 //   D 动车二等座 ≈ 0.31元/km，一等座 ≈ 1.5倍
@@ -697,7 +697,7 @@ function estimateBasePrice(t) {
   }
 }
 
-// 席别价格倍率（备用，当yp_info无真实票价时使用）
+// 席别价格倍率（备用，当后端未解析到真实票价时使用）
 const SEAT_MULTIPLIERS = {
   g: { business: 3.2, first: 1.6, second: 1.0 },
   d: { business: 3.2, first: 1.5, second: 1.0 },
@@ -708,7 +708,7 @@ const SEAT_MULTIPLIERS = {
 };
 
 // 返回各席别的价格 { seatName: price }
-// 优先使用12306真实票价（从yp_info解析），无数据时用估算
+// 优先使用12306真实票价（后端从 yp_ex_str 解析），无数据时用估算
 function estimateAllPrices(t) {
   // 如果有真实票价，直接使用
   if (t.prices && Object.keys(t.prices).length > 0) {
