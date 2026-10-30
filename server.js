@@ -270,14 +270,26 @@ function parseStationData(text) {
   return stations;
 }
 
-// 同一个地级市下的所有车站（按热门度排序）
+// 同一个地级市下的所有车站（主站优先：与城市同名 > 名字短 > 原始序号）
 function cityStationsOf(code) {
   if (!stationCache || !stationCache[code]) return [];
   const self = stationCache[code];
   if (!self.cityCode) return [];
-  return Object.values(stationCache)
+  const cityName = self.city || '';
+  // 排序优先级：与城市同名 > 以城市名开头（北京南/上海虹桥）> 名字短的 > 原始序号
+  // 不能简单按名字长度排，否则"练塘/海湾"这种两字小站会挤掉"上海虹桥"
+  const rank = (s) => {
+    if (s.name === cityName) return 0;
+    if (cityName && s.name.startsWith(cityName)) return 10 + (s.name.length - cityName.length);
+    return 100 + s.name.length;
+  };
+  const list = Object.values(stationCache)
     .filter(s => s.cityCode === self.cityCode)
-    .sort((a, b) => a.index - b.index);
+    .sort((a, b) => rank(a) - rank(b) || a.index - b.index);
+  // 保证"用户选的那个站"永远排在第一位，不会被后面的截断踢掉
+  const idx = list.findIndex(s => s.code === code);
+  if (idx > 0) list.unshift(list.splice(idx, 1)[0]);
+  return list;
 }
 
 app.get('/api/stations', async (req, res) => {
@@ -368,7 +380,9 @@ app.get('/api/ticket', async (req, res) => {
     }
     const group = cityStationsOf(from);
     if (group.length > 1) {
-      const limited = group.slice(0, 8);   // 最多 8 个同城站，避免请求爆炸
+      // 最多查 N 个同城站（默认 8，可用 CITY_LIMIT 调整），第一个永远是用户选的站
+      const cityLimit = Math.max(1, parseInt(process.env.CITY_LIMIT || '8', 10));
+      const limited = group.slice(0, cityLimit);
       const lists = await Promise.all(limited.map(s => fetchTicketsRaw(s.code, to, date)));
       const merged = [];
       const seen = new Set();
