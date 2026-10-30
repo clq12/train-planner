@@ -22,6 +22,10 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 
 .search-panel{background:var(--card);border-radius:14px;padding:20px;margin-bottom:16px;border:1px solid var(--border)}
 .search-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+.search-options{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.opt-check{display:inline-flex;align-items:center;gap:6px;font-size:.85em;color:var(--text);cursor:pointer;user-select:none}
+.opt-check input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:0}
+.opt-hint{font-size:.78em;color:var(--text3)}
 .field{flex:1;min-width:140px;position:relative}
 .field label{display:block;font-size:.75em;color:var(--text2);margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
 .field input{width:100%;padding:10px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;color:var(--text);font-size:.92em;outline:none;transition:border-color .2s}
@@ -241,6 +245,13 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
         <input type="date" id="travelDate">
       </div>
       <button class="btn-search" id="btnSearch" onclick="doSearch()">🔍 查询</button>
+    </div>
+    <div class="search-options">
+      <label class="opt-check" title="取消勾选后会查全部枢纽，耗时明显变长">
+        <input type="checkbox" id="useCommonHubs" checked>
+        <span>使用 20 个常见枢纽</span>
+      </label>
+      <span class="opt-hint">取消勾选 = 全部枢纽都查（约 30 个，耗时约翻倍）</span>
     </div>
   </div>
 
@@ -1120,7 +1131,7 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
   // 4. 中转换乘 - 不同车次换乘（流式进度）
   try {
     showProgress('正在搜索中转换乘方案...', 80);
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}`);
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -1199,9 +1210,15 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
 }
 
 // ========== 中转换乘查询 ==========
+// 枢纽范围参数：勾选「使用 20 个常见枢纽」时传空，取消勾选则查全部枢纽
+function hubParam() {
+  var el = document.getElementById('useCommonHubs');
+  return (el && !el.checked) ? '&allHubs=1' : '';
+}
+
 async function searchTransfer(fromCode, toCode, date) {
   try {
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}`);
     const data = await resp.json();
     if (data.status === 0 && data.data) {
       return data.data;
@@ -1283,7 +1300,7 @@ function buildSameTrainSegRow(train, trainNo) {
 // 同车换乘查询（旧版，保留兼容）
 async function searchSegmented(fromCode, toCode, fromName, toName, date) {
   try {
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}`);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}`);
     const data = await resp.json();
     if (data.status === 0 && data.data) {
       // 直接使用 API 返回的 leg1/leg2/compatibility 结构

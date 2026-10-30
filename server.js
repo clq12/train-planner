@@ -575,6 +575,8 @@ function parseTicketData(data) {
 // ========== 中转换乘搜索（支持跨日期，流式进度） ==========
 app.get('/api/transfer', async (req, res) => {
   const { from, to, date, date2, transferStation } = req.query;
+  // allHubs=1 表示「全部枢纽都查」，否则只查前 20 个常见枢纽
+  const allHubs = req.query.allHubs === '1' || req.query.allHubs === 'true';
   if (!from || !to || !date) {
     return res.status(400).json({ status: 1, error: '缺少参数: from, to, date' });
   }
@@ -723,8 +725,9 @@ app.get('/api/transfer', async (req, res) => {
     }
 
     const results = [];
-    const maxTransferChecks = transferStation ? 1 : 20;
+    const maxTransferChecks = transferStation ? 1 : (allHubs ? hubPool.length : 20);
     const hubsToCheck = hubPool.slice(0, maxTransferChecks);
+    console.log(`🔀 Transfer hubs: ${hubsToCheck.length}/${hubPool.length}（${allHubs ? '全部枢纽' : '常见 20 个'}）`);
     const HUB_CONCURRENCY = Math.max(1, parseInt(process.env.HUB_CONCURRENCY || '5', 10));
 
     // 单个枢纽：第一段 + 第二段（当天/次日/第三天，三天并发），返回可换乘组合
