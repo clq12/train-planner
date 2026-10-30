@@ -589,10 +589,13 @@ app.get('/api/transfer', async (req, res) => {
   }
 
   // 计算第二天日期
+  // 注意：不能写成 new Date(d + 'T00:00:00+08:00') 再 toISOString()——
+  // 那会转成 UTC（前一天 16:00），加一天又回到原日期，等于永远返回同一天。
+  // 这里统一按 UTC 零点处理，日期才不会偏移。
   function nextDay(d) {
-    const dt = new Date(d + 'T00:00:00+08:00');
-    dt.setDate(dt.getDate() + 1);
-    return dt.toISOString().split('T')[0];
+    const dt = new Date(d + 'T00:00:00Z');
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    return dt.toISOString().slice(0, 10);
   }
   const dateNext = date2 || nextDay(date);
 
@@ -788,22 +791,12 @@ app.get('/api/transfer', async (req, res) => {
           return gap >= 20 && gap <= 720;
         }
 
-        // 去重：同一趟车连着三天都可能出现（时刻完全一样，只是日期不同），
-        // 前端不显示日期，三条并排就会被看成"重复数据"。
-        // 同一车次只留一条：可衔接的第一段越多越好 → 再有票优先 → 再日期更早优先
-        const byTrainNo = new Map();
-        const scoreOf = (cand) =>
-          leg1.filter(x => canConnect(x, cand)).length * 100 + (cand.canBuy && hasTicketFn(cand) ? 1 : 0);
-
-        for (const t of leg2All) {
-          const prev = byTrainNo.get(t.trainNo);
-          if (!prev) { byTrainNo.set(t.trainNo, t); continue; }
-          const sc = scoreOf(t), sp = scoreOf(prev);
-          if (sc > sp || (sc === sp && String(t._leg2Date) < String(prev._leg2Date))) {
-            byTrainNo.set(t.trainNo, t);
-          }
-        }
-        const leg2 = Array.from(byTrainNo.values());
+        // 同一趟车连着三天都可能出现（时刻完全一样，只是日期不同）。
+        // 不去重，改为带上日期偏移天数，由前端在时间前显示 +1 / +2，一眼能区分。
+        const leg2 = leg2All.map(t => ({
+          ...t,
+          dayOffset: daysBetween(date, t._leg2Date),
+        }));
 
         // 构建兼容性映射：每趟 leg1 对应能赶上的 leg2 索引
         const compatibility = {};

@@ -193,6 +193,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .leg-row{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;transition:all .15s;flex-wrap:wrap}
 .leg-row .lr-no{font-family:monospace;font-weight:700;min-width:52px}
 .leg-row .lr-time{font-family:monospace;font-size:.95em}
+.leg-row .lr-day{font-family:monospace;font-size:.72em;line-height:1;padding:2px 4px;border-radius:4px;background:rgba(230,126,34,.18);color:var(--accent);font-weight:600;white-space:nowrap}
 .leg-row .lr-seats{margin-left:auto;display:flex;flex-wrap:wrap;gap:3px}
 .leg-row .lr-price{min-width:45px;text-align:right}
 .leg-row.no-ticket{display:none}
@@ -1706,6 +1707,10 @@ function buildLegRow(t, hubId, leg, idx, options) {
 
   var row = '<div'+onClick+' class="'+cls+'" style="'+bg+'">';
   row += '<span class="lr-no">'+escapeHTML(t.trainNo)+'</span>';
+  if (leg === 'leg2' && t.dayOffset > 0) {
+    var dayTip = t.dayOffset === 1 ? '次日发车' : ('第 ' + (t.dayOffset + 1) + ' 天发车');
+    row += '<span class="lr-day" title="'+dayTip+'">+'+t.dayOffset+'</span>';
+  }
   row += '<span class="lr-time">'+escapeHTML(t.startTime)+'</span>';
   row += '<span style="color:var(--text3)">→</span>';
   row += '<span class="lr-time">'+escapeHTML(t.arriveTime)+'</span>';
@@ -1913,11 +1918,12 @@ function refreshDualPanel(hubId) {
       var hasReal = (t1.prices && Object.keys(t1.prices).length > 0) || (t2.prices && Object.keys(t2.prices).length > 0);
       var pricePfx = hasReal ? '¥' : '≈¥';
       // 总时间：leg1耗时 + 换乘间隔 + leg2耗时
+      // 用"绝对分钟"算，跨日才不会被算成负数（第一段可能跨夜，第二段可能是 +1/+2 天）
       var leg1Dur = durToMinutes(t1.duration);
       var leg2Dur = durToMinutes(t2.duration);
-      var arr1Mins = timeToMinutes(t1.arriveTime);
-      var dep2Mins = timeToMinutes(t2.startTime);
-      var gap = dep2Mins - arr1Mins;
+      var arr1Abs = timeToMinutes(t1.startTime) + leg1Dur;
+      var dep2Abs = (t2.dayOffset || 0) * 1440 + timeToMinutes(t2.startTime);
+      var gap = dep2Abs - arr1Abs;
       if (gap < 0) gap += 1440;
       var totalDur = leg1Dur + gap + leg2Dur;
       // 换乘间隔显示
