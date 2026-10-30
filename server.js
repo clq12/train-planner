@@ -771,27 +771,46 @@ app.get('/api/transfer', async (req, res) => {
           return parsed2.map(t => ({ ...t, _leg2Date: d }));
         }));
 
-        const leg2 = [];
-        leg2Groups.forEach(group => { leg2.push(...group); });
-        if (leg2.length === 0) return null;
+        const leg2All = [];
+        leg2Groups.forEach(group => { leg2All.push(...group); });
+        if (leg2All.length === 0) return null;
+
+        // 判断某趟第一段能否接上某趟第二段（换乘间隔 20 分钟 ~ 12 小时）
+        function canConnect(t1, t2) {
+          const arrDate = computeArrivalDate(t1.startDate, t1.startTime, t1.arriveTime, t1.duration);
+          const arrMins = parseInt(t1.arriveTime.split(':')[0]) * 60 + parseInt(t1.arriveTime.split(':')[1]);
+          const depMins = parseInt(t2.startTime.split(':')[0]) * 60 + parseInt(t2.startTime.split(':')[1]);
+          const dayDiff = daysBetween(arrDate, t2._leg2Date);
+          let gap;
+          if (dayDiff === 0) gap = depMins - arrMins;
+          else if (dayDiff > 0) gap = dayDiff * 1440 + (depMins - arrMins);
+          else return false;
+          return gap >= 20 && gap <= 720;
+        }
+
+        // 去重：同一趟车连着三天都可能出现（时刻完全一样，只是日期不同），
+        // 前端不显示日期，三条并排就会被看成"重复数据"。
+        // 同一车次只留一条：可衔接的第一段越多越好 → 再有票优先 → 再日期更早优先
+        const byTrainNo = new Map();
+        const scoreOf = (cand) =>
+          leg1.filter(x => canConnect(x, cand)).length * 100 + (cand.canBuy && hasTicketFn(cand) ? 1 : 0);
+
+        for (const t of leg2All) {
+          const prev = byTrainNo.get(t.trainNo);
+          if (!prev) { byTrainNo.set(t.trainNo, t); continue; }
+          const sc = scoreOf(t), sp = scoreOf(prev);
+          if (sc > sp || (sc === sp && String(t._leg2Date) < String(prev._leg2Date))) {
+            byTrainNo.set(t.trainNo, t);
+          }
+        }
+        const leg2 = Array.from(byTrainNo.values());
 
         // 构建兼容性映射：每趟 leg1 对应能赶上的 leg2 索引
         const compatibility = {};
         for (let i = 0; i < leg1.length; i++) {
-          const t1 = leg1[i];
-          const arrDate = computeArrivalDate(t1.startDate, t1.startTime, t1.arriveTime, t1.duration);
-          const arrMins = parseInt(t1.arriveTime.split(':')[0]) * 60 + parseInt(t1.arriveTime.split(':')[1]);
-
           const compatibleIndices = [];
           for (let j = 0; j < leg2.length; j++) {
-            const t2 = leg2[j];
-            const depMins = parseInt(t2.startTime.split(':')[0]) * 60 + parseInt(t2.startTime.split(':')[1]);
-            const dayDiff = daysBetween(arrDate, t2._leg2Date);
-            let gap;
-            if (dayDiff === 0) gap = depMins - arrMins;
-            else if (dayDiff > 0) gap = dayDiff * 1440 + (depMins - arrMins);
-            else continue;
-            if (gap >= 20 && gap <= 720) compatibleIndices.push(j);
+            if (canConnect(leg1[i], leg2[j])) compatibleIndices.push(j);
           }
           compatibility[i] = compatibleIndices;
         }
