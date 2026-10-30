@@ -1,6 +1,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -155,8 +156,40 @@ function parseCookies(setCookies) {
   }
 }
 
+// ========== 额外 Cookie（可选，用来"加 cookie"） ==========
+// 余票查询本身不需要登录，程序访问 init 页就能拿到 JSESSIONID 等 3 个 cookie。
+// 如果 12306 开始频繁 302，可以把你浏览器里的完整 cookie 粘进来补充：
+//   方式1：项目根目录建 cookie.txt，一行字符串，如 RAIL_DEVICEID=xxx; RAIL_EXPIRATION=yyy
+//   方式2：启动前设环境变量 COOKIE_EXTRA="同样的格式"
+// 规则：只补缺，不覆盖程序自己拿到的会话 cookie（避免粘了个过期 JSESSIONID 反而挂掉）
+const EXTRA_COOKIE_FILE = path.join(__dirname, 'cookie.txt');
+let extraCookieCache = { fromFile: '', mtime: 0 };
+
+function getExtraCookies() {
+  let fromFile = extraCookieCache.fromFile;
+  try {
+    const st = fs.statSync(EXTRA_COOKIE_FILE);
+    if (st.mtimeMs !== extraCookieCache.mtime) {
+      fromFile = fs.readFileSync(EXTRA_COOKIE_FILE, 'utf8').trim().replace(/^cookie:\s*/i, '');
+      extraCookieCache = { fromFile, mtime: st.mtimeMs };
+      console.log(`🍪 已加载 cookie.txt（${fromFile.length} 字符）`);
+    }
+  } catch (e) { /* 没有 cookie.txt 就走自动获取 */ }
+
+  const fromEnv = (process.env.COOKIE_EXTRA || '').trim().replace(/^cookie:\s*/i, '');
+  return [fromEnv, fromFile].filter(Boolean).join('; ');
+}
+
 function getCookieString() {
-  return Object.entries(cookieJar).map(([k, v]) => `${k}=${v}`).join('; ');
+  const jar = { ...cookieJar };
+  for (const pair of getExtraCookies().split(';')) {
+    const idx = pair.indexOf('=');
+    if (idx <= 0) continue;
+    const k = pair.slice(0, idx).trim();
+    const v = pair.slice(idx + 1).trim();
+    if (k && v && !(k in jar)) jar[k] = v;  // 只补缺，不覆盖
+  }
+  return Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
 async function refreshCookies() {
@@ -996,6 +1029,26 @@ app.get('/api/health', (req, res) => {
     message: 'Train Planner API is running',
     time: new Date().toISOString(),
   });
+});
+
+// 当前 cookie 情况（只回名字，不回值，方便排查）
+app.get('/api/cookie-status', async (req, res) => {
+  try {
+    if (!Object.keys(cookieJar).length) await getCookies();
+    const extras = getExtraCookies()
+      .split(';')
+      .map(s => s.split('=')[0].trim())
+      .filter(Boolean);
+    res.json({
+      status: 0,
+      auto: Object.keys(cookieJar),
+      extra: extras,
+      ageMs: cookieTime ? Date.now() - cookieTime : null,
+      ttlMs: COOKIE_TTL,
+    });
+  } catch (err) {
+    res.status(500).json({ status: 1, error: err.message });
+  }
 });
 
 // ========== 全局错误处理 ==========

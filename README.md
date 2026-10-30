@@ -196,6 +196,20 @@ train-planner/
 └── .gitignore
 ```
 
+## 🍪 Cookie 说明
+
+余票查询**不需要登录**。程序启动后会自动访问 `12306/otn/leftTicket/init`，从 `Set-Cookie` 里拿到 `JSESSIONID`、`SF_cookie_2`、`BIGipServerotn` 三个 cookie，之后每个请求自动带上，3 分钟自动刷新一次，遇到 302 会立即重新获取。
+
+**如果 12306 频繁返回 302，可以补充自己的 cookie**（只补缺、不覆盖程序自动拿到的会话 cookie）：
+
+| 方式 | 做法 |
+|---|---|
+| cookie.txt（推荐） | 项目根目录新建 `cookie.txt`，一行写完，例如 `RAIL_DEVICEID=xxx; RAIL_EXPIRATION=1799...`，保存后下一次请求自动生效，不用重启 |
+| 环境变量 | 启动前设置 `COOKIE_EXTRA="RAIL_DEVICEID=xxx; RAIL_EXPIRATION=1799..."` |
+
+> `cookie.txt` 已在 `.gitignore` 里，不会被提交。
+> 查看当前生效了哪些 cookie：访问 `http://localhost:3000/api/cookie-status`（只返回名字，不返回值）。
+
 ## 📝 数据说明
 
 - 余票数据来自12306官网API，实时更新
