@@ -45,21 +45,90 @@ function buildHeaders(cookie, extra = {}) {
   };
 }
 
-// ========== 请求限流 ==========
-// 注意：在 Vercel Serverless 环境中，全局变量不跨实例共享，
-// 限流仅在同一实例内有效。多实例并发时 12306 可能收到突发请求。
-// 如需更好的限流，应使用外部存储（如 Redis）或 Vercel Edge Middleware。
-let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 300;
+// ========== 并发控制 ==========
+// 12306 查询是 IO 密集型：瓶颈在"等响应"，不在"算"，所以用异步并发就够
+// （Node 单线程 + 非阻塞 IO），不需要 worker_threads 那种真多线程。
+// 旧实现是"距上次请求不足 300ms 就等"的开关，同批到达的请求会一起跳过等待、
+// 一起打 12306（实测 8 个并发只用 0.43s，说明它根本没排队）。现在改成
+// "信号量 + 最小间隔"：真正限制在途请求数，既加速又不会把 12306 打爆。
+// 环境变量可调：MAX_CONCURRENCY（默认 4）、MIN_REQUEST_INTERVAL（默认 150ms）
+const MAX_CONCURRENCY = Math.max(1, parseInt(process.env.MAX_CONCURRENCY || '4', 10));
+const MIN_REQUEST_INTERVAL = Math.max(0, parseInt(process.env.MIN_REQUEST_INTERVAL || '150', 10));
+
+// 被 12306 限流时（返回 302）进入全局冷却，避免越撞越死
+let cooldownUntil = 0;
+function triggerCooldown(ms) {
+  const until = Date.now() + ms;
+  if (until > cooldownUntil) {
+    cooldownUntil = until;
+    console.log(`⏸️ 12306 疑似限流，全局冷却 ${ms}ms`);
+  }
+}
+
+let activeRequests = 0;      // 在途请求数
+let lastRequestTime = 0;     // 上次放行时刻
+const waitingSlots = [];     // 排队等待放行的 resolve
+let drainTimer = null;
+
+function pumpQueue() {
+  if (drainTimer) return;
+  if (activeRequests >= MAX_CONCURRENCY || waitingSlots.length === 0) return;
+
+  const earliest = Math.max(lastRequestTime + MIN_REQUEST_INTERVAL, cooldownUntil);
+  const wait = earliest - Date.now();
+  if (wait > 0) {
+    drainTimer = setTimeout(() => { drainTimer = null; pumpQueue(); }, wait);
+    return;
+  }
+
+  const resolve = waitingSlots.shift();
+  activeRequests++;
+  lastRequestTime = Date.now();
+  resolve();
+  if (activeRequests < MAX_CONCURRENCY && waitingSlots.length > 0) pumpQueue();
+}
+
+function acquireSlot() {
+  return new Promise(resolve => { waitingSlots.push(resolve); pumpQueue(); });
+}
 
 async function throttledFetch(url, options) {
-  const now = Date.now();
-  const elapsed = now - lastRequestTime;
-  if (elapsed < MIN_REQUEST_INTERVAL) {
-    await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL - elapsed));
+  await acquireSlot();
+  try {
+    return await fetch(url, options);
+  } finally {
+    activeRequests--;
+    pumpQueue();
   }
-  lastRequestTime = Date.now();
-  return fetch(url, options);
+}
+
+// ========== 查询缓存 ==========
+// 多策略会反复查同一个区间（同车换乘/买长乘短/买短乘长 都会回到原区间），
+// 60 秒内直接复用结果：既快，又大幅减少打到 12306 的请求数（降低被限流概率）。
+// 环境变量 QUERY_CACHE_TTL 可关（设为 0）或调整 TTL
+const QUERY_CACHE_TTL = Math.max(0, parseInt(process.env.QUERY_CACHE_TTL || '60000', 10));
+const QUERY_CACHE_MAX = 500;
+const queryCache = new Map();
+
+function cacheKeyOf(from, to, date) { return from + '|' + to + '|' + date; }
+
+function cacheGet(from, to, date) {
+  if (!QUERY_CACHE_TTL) return null;
+  const k = cacheKeyOf(from, to, date);
+  const hit = queryCache.get(k);
+  if (!hit) return null;
+  if (Date.now() - hit.t > QUERY_CACHE_TTL) { queryCache.delete(k); return null; }
+  return hit.value;
+}
+
+function cacheSet(from, to, date, value) {
+  if (!QUERY_CACHE_TTL) return;
+  const k = cacheKeyOf(from, to, date);
+  queryCache.set(k, { t: Date.now(), value });
+  if (queryCache.size > QUERY_CACHE_MAX) {
+    const oldest = queryCache.keys().next().value;
+    queryCache.delete(oldest);
+  }
 }
 
 // ========== Cookie 管理（核心修复） ==========
@@ -189,6 +258,12 @@ app.get('/api/ticket', async (req, res) => {
     return res.status(400).json({ status: 1, error: '缺少参数: from, to, date' });
   }
 
+  // 命中缓存直接返回（多策略会反复查同一个区间）
+  const cachedTicket = cacheGet(from, to, date);
+  if (cachedTicket) {
+    return res.json(cachedTicket);
+  }
+
   const maxRetries = 4;
   let lastErr = '';
 
@@ -283,7 +358,9 @@ app.get('/api/ticket', async (req, res) => {
           const available = parsed.filter(t => t.canBuy && hasTicketFn(t));
           const allCount = parsed.length;
           console.log(`✅ Ticket query OK: ${allCount} trains, ${available.length} with tickets (${from}→${to})`);
-          return res.json({ status: 0, data: parsed, availableCount: available.length, totalCount: allCount });
+          const payload = { status: 0, data: parsed, availableCount: available.length, totalCount: allCount };
+          cacheSet(from, to, date, payload);
+          return res.json(payload);
         } catch (parseErr) {
           console.error('❌ parseTicketData failed:', parseErr.message, parseErr.stack);
           lastErr = '数据解析失败: ' + parseErr.message;
@@ -584,56 +661,86 @@ app.get('/api/transfer', async (req, res) => {
         .filter(Boolean);
     }
 
+    // 枢纽去重：济南西/济南/济南东 同属一城，只留第一个；
+    // 并排除与出发地/目的地同城的枢纽（北京→上海 里经上海换乘没有意义）
+    // 注意：城市名本身可能以方位字结尾（济南、南京），所以只在长度≥3时去掉尾字
+    function cityKey(name) {
+      let s = String(name || '').trim();
+      s = s.replace(/虹桥$/, '');           // 上海虹桥 → 上海
+      if (s.length >= 3) s = s.replace(/[东西南北站]$/, '');  // 济南西 → 济南，济南 保持不变
+      return s;
+    }
+    const fromCity = cityKey((stations[from] || {}).name || '');
+    const toCity = cityKey((stations[to] || {}).name || '');
+
+    let hubPool = transferCandidates;
+    if (!transferStation) {
+      const seenCity = new Set();
+      hubPool = transferCandidates.filter(s => {
+        const key = cityKey(s.name);
+        if (!key) return true;
+        if (key === fromCity || key === toCity) return false;  // 同城不换乘
+        if (seenCity.has(key)) return false;                   // 同城枢纽去重
+        seenCity.add(key);
+        return true;
+      });
+    }
+
     const results = [];
     const maxTransferChecks = transferStation ? 1 : 20;
-    const hubsToCheck = transferCandidates.slice(0, maxTransferChecks);
+    const hubsToCheck = hubPool.slice(0, maxTransferChecks);
+    const HUB_CONCURRENCY = Math.max(1, parseInt(process.env.HUB_CONCURRENCY || '5', 10));
 
-    for (let hi = 0; hi < hubsToCheck.length; hi++) {
-      const hub = hubsToCheck[hi];
-      // 发送进度
-      sendEvent({ type: 'progress', current: hi + 1, total: hubsToCheck.length, hub: hub.name, found: results.length });
-
+    // 单个枢纽：第一段 + 第二段（当天/次日/第三天，三天并发），返回可换乘组合
+    async function checkHub(hub) {
       try {
-        // 第一段：from → 中转站（出发日期）
-        const cookies1 = await getCookies();
-        const url1 = `${API_BASE}/otn/leftTicket/queryG?leftTicketDTO.train_date=${date}&leftTicketDTO.from_station=${from}&leftTicketDTO.to_station=${hub.code}&purpose_codes=ADULT`;
-        const resp1 = await throttledFetch(url1, {
-          headers: buildHeaders(cookies1), redirect: 'manual', timeout: 12000,
-        });
-        if (resp1.status === 302) { await forceRefreshCookies(); continue; }
-        if (resp1.status !== 200) continue;
-        let data1;
-        try { data1 = await resp1.json(); } catch(e) { continue; }
-        if (!data1?.data?.result?.length) continue;
+        // 第一段：from → 中转站（出发日期），命中缓存则不再打 12306
+        let leg1 = null;
+        const cached1 = cacheGet(from, hub.code, date);
+        if (cached1) {
+          leg1 = cached1.data;
+        } else {
+          const cookies1 = await getCookies();
+          const url1 = `${API_BASE}/otn/leftTicket/queryG?leftTicketDTO.train_date=${date}&leftTicketDTO.from_station=${from}&leftTicketDTO.to_station=${hub.code}&purpose_codes=ADULT`;
+          const resp1 = await throttledFetch(url1, {
+            headers: buildHeaders(cookies1), redirect: 'manual', timeout: 12000,
+          });
+          if (resp1.status === 302) { triggerCooldown(3000); await forceRefreshCookies(); return null; }
+          if (resp1.status !== 200) return null;
+          let data1;
+          try { data1 = await resp1.json(); } catch (e) { return null; }
+          if (!data1?.data?.result?.length) return null;
 
-        const leg1All = parseTicketData(data1.data);
-        // 不过滤 canBuy，显示全部车次（含无票），由前端标灰
-        const leg1 = leg1All;
-        if (leg1.length === 0) continue;
+          // 不过滤 canBuy，显示全部车次（含无票），由前端标灰
+          leg1 = parseTicketData(data1.data);
+          cacheSet(from, hub.code, date, { status: 0, data: leg1 });
+        }
+        if (!leg1 || leg1.length === 0) return null;
 
-        // 第二段：查当天 + 第二天 + 第三天（支持跨日期换乘）
-        let leg2All = [];
+        // 第二段：当天 + 第二天 + 第三天（支持跨日期换乘），三个日期并发查
         const dateNext2 = nextDay(dateNext);
-        for (const d of [date, dateNext, dateNext2]) {
+        const leg2Groups = await Promise.all([date, dateNext, dateNext2].map(async (d) => {
+          const cached2 = cacheGet(hub.code, to, d);
+          if (cached2) return cached2.data.map(t => ({ ...t, _leg2Date: d }));
+
           const cookies2 = await getCookies();
           const url2 = `${API_BASE}/otn/leftTicket/queryG?leftTicketDTO.train_date=${d}&leftTicketDTO.from_station=${hub.code}&leftTicketDTO.to_station=${to}&purpose_codes=ADULT`;
           const resp2 = await throttledFetch(url2, {
             headers: buildHeaders(cookies2), redirect: 'manual', timeout: 12000,
           });
-          if (resp2.status === 302) { await forceRefreshCookies(); continue; }
-          if (resp2.status !== 200) continue;
+          if (resp2.status === 302) { triggerCooldown(3000); await forceRefreshCookies(); return []; }
+          if (resp2.status !== 200) return [];
           let data2;
-          try { data2 = await resp2.json(); } catch(e) { continue; }
-          if (!data2?.data?.result?.length) continue;
+          try { data2 = await resp2.json(); } catch (e) { return []; }
+          if (!data2?.data?.result?.length) return [];
+          const parsed2 = parseTicketData(data2.data);
+          cacheSet(hub.code, to, d, { status: 0, data: parsed2 });
+          return parsed2.map(t => ({ ...t, _leg2Date: d }));
+        }));
 
-          const parsed = parseTicketData(data2.data);
-          parsed.forEach(t => { t._leg2Date = d; });
-          leg2All.push(...parsed);
-        }
-
-        // 不过滤 canBuy，显示全部车次（含无票），由前端标灰
-        const leg2 = leg2All;
-        if (leg2.length === 0) continue;
+        const leg2 = [];
+        leg2Groups.forEach(group => { leg2.push(...group); });
+        if (leg2.length === 0) return null;
 
         // 构建兼容性映射：每趟 leg1 对应能赶上的 leg2 索引
         const compatibility = {};
@@ -659,17 +766,40 @@ app.get('/api/transfer', async (req, res) => {
         // 清理内部字段
         leg2.forEach(t => delete t._leg2Date);
 
-        results.push({
+        return {
           hub: hub.name,
           hubCode: hub.code,
           leg1Count: leg1.length,
           leg2Count: leg2.length,
           leg1, leg2, compatibility,
-        });
+        };
       } catch (e) {
-        continue;
+        return null;
       }
     }
+
+    // 枢纽并发执行（实际 HTTP 仍受全局并发池约束），进度按完成数回传
+    let hubCursor = 0;
+    let finishedHubs = 0;
+    async function hubWorker() {
+      while (true) {
+        const idx = hubCursor++;
+        if (idx >= hubsToCheck.length) return;
+        const hub = hubsToCheck[idx];
+        let r = await checkHub(hub);
+        // 被限流（302）时等一下重试一次，别直接丢掉这个枢纽
+        if (!r) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          r = await checkHub(hub);
+        }
+        if (r) results.push(r);
+        finishedHubs++;
+        sendEvent({ type: 'progress', current: finishedHubs, total: hubsToCheck.length, hub: hub.name, found: results.length });
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(HUB_CONCURRENCY, hubsToCheck.length) }, () => hubWorker())
+    );
 
     console.log(`✅ Transfer: ${results.length} hubs (${from}→${to}, ${date}~${dateNext})`);
     sendEvent({ type: 'result', status: 0, data: results });

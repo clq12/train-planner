@@ -772,6 +772,29 @@ function estimatePrice(t) {
   return getMinAvailablePrice(t);
 }
 
+
+// ========== 受限并发执行 ==========
+// 浏览器端同时最多发 CONCURRENT_QUERIES 个请求：比串行快数倍，又不会把
+// 后端和 12306 打爆（后端还有自己的并发池兜底）。结果按原顺序返回。
+const CONCURRENT_QUERIES = 4;
+
+async function mapLimit(items, limit, worker) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  const runners = [];
+  const n = Math.min(limit, items.length);
+  for (let r = 0; r < n; r++) {
+    runners.push((async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= items.length) return;
+        out[i] = await worker(items[i], i);
+      }
+    })());
+  }
+  await Promise.all(runners);
+  return out;
+}
 function timeToMinutes(t) {
   if (!t) return 0;
   const parts = t.split(':');
@@ -995,26 +1018,28 @@ async function showBuyLong(trainNo, trainCode) {
     }
 
     let results = [];
-    for (const stop of furtherStops) {
+    // 更远站点的余票并发查（原来一个一个等，站点多时要十几秒）
+    const stopResults = await mapLimit(furtherStops, CONCURRENT_QUERIES, async (stop) => {
       const stationEntry = Object.values(allStations).find(s => s.name === stop.stationName);
-      if (!stationEntry) continue;
-
+      if (!stationEntry) return null;
       try {
         const tr = await fetch(`/api/ticket?from=${fromCode}&to=${stationEntry.code}&date=${date}`);
         const td = await tr.json();
         if (td.status === 0 && td.data) {
           const sameTrain = td.data.find(t => t.trainNo === trainNo);
           if (sameTrain && hasTicket(sameTrain)) {
-            results.push({
+            return {
               endStation: stop.stationName,
               endCode: stationEntry.code,
               train: sameTrain,
               stopsAway: furtherStops.indexOf(stop) + 1,
-            });
+            };
           }
         }
       } catch (e) { /* skip */ }
-    }
+      return null;
+    });
+    results = stopResults.filter(Boolean);
 
     if (results.length) {
       c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
@@ -1191,44 +1216,46 @@ async function autoBuyLong(trains, fromCode, toCode, date, onProgress) {
   const toName = document.getElementById('toInput').value;
   const checkTrains = trains.filter(t => t.canBuy).slice(0, 10);
   const checkedPairs = new Set();
+  let done = 0;
 
-  for (let i = 0; i < checkTrains.length; i++) {
-    const t = checkTrains[i];
-    if (onProgress) onProgress(i + 1, checkTrains.length, t.trainNo);
+  // 每趟车一个并发任务（原来逐趟串行）
+  await mapLimit(checkTrains, CONCURRENT_QUERIES, async (t) => {
     try {
       const sr = await fetch(`/api/schedule?trainNo=${t.trainCode}&date=${date}&fromCode=${fromCode}&toCode=${t.toStationCode}`);
       const sd = await sr.json();
-      if (sd.status !== 0 || !sd.data) continue;
+      if (sd.status === 0 && sd.data) {
+        const stops = sd.data;
+        const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/, '')));
+        if (toIdx >= 0) {
+          const furtherStops = stops.slice(toIdx + 1);
+          // 遍历所有更远站点（从近到远），找到第一个有票的即可
+          for (const stop of furtherStops) {
+            const endStation = Object.values(allStations).find(s => s.name === stop.stationName);
+            if (!endStation) continue;
+            const pairKey = fromCode + '_' + endStation.code;
+            if (checkedPairs.has(pairKey)) continue;
+            checkedPairs.add(pairKey);
 
-      const stops = sd.data;
-      const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/,'')));
-      if (toIdx < 0) continue;
+            try {
+              const tr = await fetch(`/api/ticket?from=${fromCode}&to=${endStation.code}&date=${date}`);
+              const td = await tr.json();
+              if (td.status !== 0 || !td.data) continue;
 
-      const furtherStops = stops.slice(toIdx + 1);
-      if (!furtherStops.length) continue;
-
-      // 遍历所有更远站点（从近到远），找到第一个有票的即可
-      for (const stop of furtherStops) {
-        const endStation = Object.values(allStations).find(s => s.name === stop.stationName);
-        if (!endStation) continue;
-        const pairKey = fromCode + '_' + endStation.code;
-        if (checkedPairs.has(pairKey)) continue;
-        checkedPairs.add(pairKey);
-
-        try {
-          const tr = await fetch(`/api/ticket?from=${fromCode}&to=${endStation.code}&date=${date}`);
-          const td = await tr.json();
-          if (td.status !== 0 || !td.data) continue;
-
-          const sameTrain = td.data.find(x => x.trainNo === t.trainNo);
-          if (sameTrain && hasTicket(sameTrain)) {
-            results.push({ train: sameTrain, endStation: stop.stationName });
-            break; // 找到一个即可，跳出内层循环
+              const sameTrain = td.data.find(x => x.trainNo === t.trainNo);
+              if (sameTrain && hasTicket(sameTrain)) {
+                results.push({ train: sameTrain, endStation: stop.stationName });
+                break; // 找到一个即可，跳出内层循环
+              }
+            } catch (e) { /* skip */ }
           }
-        } catch (e) { /* skip */ }
+        }
       }
     } catch (e) { /* skip */ }
-  }
+
+    done++;
+    if (onProgress) onProgress(done, checkTrains.length, t.trainNo);
+  });
+
   return results;
 }
 
@@ -1284,58 +1311,62 @@ async function searchSameTrainSegmented(trains, fromCode, toCode, fromName, toNa
   const seenTrains = new Set();
   // 筛选有票或可候补的车次
   const checkTrains = trains.filter(t => t.canBuy).slice(0, 10);
+  let done = 0;
 
-  for (let i = 0; i < checkTrains.length; i++) {
-    const t = checkTrains[i];
-    if (onProgress) onProgress(i + 1, checkTrains.length, t.trainNo);
-    if (seenTrains.has(t.trainNo)) continue;
+  await mapLimit(checkTrains, CONCURRENT_QUERIES, async (t) => {
     try {
-      const sr = await fetch(`/api/schedule?trainNo=${t.trainCode}&date=${date}&fromCode=${fromCode}&toCode=${t.toStationCode}`);
-      const sd = await sr.json();
-      if (sd.status !== 0 || !sd.data) continue;
+      if (!seenTrains.has(t.trainNo)) {
+        const sr = await fetch(`/api/schedule?trainNo=${t.trainCode}&date=${date}&fromCode=${fromCode}&toCode=${t.toStationCode}`);
+        const sd = await sr.json();
+        if (sd.status === 0 && sd.data) {
+          const stops = sd.data;
+          const fromIdx = stops.findIndex(s => s.stationName.includes(fromName.replace(/站$/, '')));
+          const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/, '')));
+          if (fromIdx >= 0 && toIdx > fromIdx) {
+            // 遍历中间站（从远到近），找同车分段方案
+            const midStops = stops.slice(fromIdx + 1, toIdx);
+            for (let mi = midStops.length - 1; mi >= 0; mi--) {
+              const mid = midStops[mi];
+              const midStation = Object.values(allStations).find(s => s.name === mid.stationName);
+              if (!midStation) continue;
 
-      const stops = sd.data;
-      const fromIdx = stops.findIndex(s => s.stationName.includes(fromName.replace(/站$/, '')));
-      const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/, '')));
-      if (fromIdx < 0 || toIdx <= fromIdx) continue;
+              try {
+                // 查第一段：from → mid
+                const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
+                const d1 = await r1.json();
+                if (d1.status !== 0 || !d1.data) continue;
+                const leg1Train = d1.data.find(x => x.trainNo === t.trainNo);
+                if (!leg1Train || !hasTicket(leg1Train)) continue;
 
-      // 遍历中间站（从远到近），找同车分段方案
-      const midStops = stops.slice(fromIdx + 1, toIdx);
-      for (let mi = midStops.length - 1; mi >= 0; mi--) {
-        const mid = midStops[mi];
-        const midStation = Object.values(allStations).find(s => s.name === mid.stationName);
-        if (!midStation) continue;
+                // 查第二段：mid → to
+                const r2 = await fetch(`/api/ticket?from=${midStation.code}&to=${toCode}&date=${date}`);
+                const d2 = await r2.json();
+                if (d2.status !== 0 || !d2.data) continue;
+                const leg2Train = d2.data.find(x => x.trainNo === t.trainNo);
+                if (!leg2Train || !hasTicket(leg2Train)) continue;
 
-        try {
-          // 查第一段：from → mid
-          const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
-          const d1 = await r1.json();
-          if (d1.status !== 0 || !d1.data) continue;
-          const leg1Train = d1.data.find(x => x.trainNo === t.trainNo);
-          if (!leg1Train || !hasTicket(leg1Train)) continue;
-
-          // 查第二段：mid → to
-          const r2 = await fetch(`/api/ticket?from=${midStation.code}&to=${toCode}&date=${date}`);
-          const d2 = await r2.json();
-          if (d2.status !== 0 || !d2.data) continue;
-          const leg2Train = d2.data.find(x => x.trainNo === t.trainNo);
-          if (!leg2Train || !hasTicket(leg2Train)) continue;
-
-          // 两段都有票，记录方案
-          results.push({
-            midStation: mid.stationName,
-            midCode: midStation.code,
-            trainNo: t.trainNo,
-            trainCode: t.trainCode,
-            leg1: leg1Train,
-            leg2: leg2Train,
-          });
-          seenTrains.add(t.trainNo);
-          break; // 每趟车只取一个最优分段点
-        } catch (e) { /* skip */ }
+                // 两段都有票，记录方案
+                results.push({
+                  midStation: mid.stationName,
+                  midCode: midStation.code,
+                  trainNo: t.trainNo,
+                  trainCode: t.trainCode,
+                  leg1: leg1Train,
+                  leg2: leg2Train,
+                });
+                seenTrains.add(t.trainNo);
+                break; // 每趟车只取一个最优分段点
+              } catch (e) { /* skip */ }
+            }
+          }
+        }
       }
     } catch (e) { /* skip */ }
-  }
+
+    done++;
+    if (onProgress) onProgress(done, checkTrains.length, t.trainNo);
+  });
+
   return results;
 }
 
@@ -1344,43 +1375,44 @@ async function autoBuyShort(trains, fromCode, toCode, fromName, toName, date, on
   const results = [];
   const seenTrains = new Set();
   const checkTrains = trains.filter(t => t.canBuy).slice(0, 8);
+  let done = 0;
 
-  for (let i = 0; i < checkTrains.length; i++) {
-    const t = checkTrains[i];
-    if (onProgress) onProgress(i + 1, checkTrains.length, t.trainNo);
+  // 每趟车一个并发任务（原来逐趟串行，等于把网络等待一个个排起来）
+  await mapLimit(checkTrains, CONCURRENT_QUERIES, async (t) => {
     try {
       const sr = await fetch(`/api/schedule?trainNo=${t.trainCode}&date=${date}&fromCode=${fromCode}&toCode=${t.toStationCode}`);
       const sd = await sr.json();
-      if (sd.status !== 0 || !sd.data) continue;
+      if (sd.status === 0 && sd.data) {
+        const stops = sd.data;
+        const fromIdx = stops.findIndex(s => s.stationName.includes(fromName.replace(/站$/, '')));
+        const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/, '')));
+        if (fromIdx >= 0 && toIdx > fromIdx) {
+          // 尝试多个中间站（从近到远）
+          const midStops = stops.slice(fromIdx + 1, toIdx);
+          for (let mi = midStops.length - 1; mi >= 0 && results.length < 5; mi--) {
+            const targetMid = midStops[mi];
+            const midStation = Object.values(allStations).find(s => s.name === targetMid.stationName);
+            if (!midStation || seenTrains.has(t.trainNo)) continue;
 
-      const stops = sd.data;
-      const fromIdx = stops.findIndex(s => s.stationName.includes(fromName.replace(/站$/,'')));
-      const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/,'')));
-      if (fromIdx < 0 || toIdx <= fromIdx) continue;
+            const tr = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
+            const td = await tr.json();
+            if (td.status !== 0 || !td.data) continue;
 
-      // 查找中间站（买短的目的地）- 取倒数第二个站
-      const midStops = stops.slice(fromIdx + 1, toIdx);
-      if (!midStops.length) continue;
-
-      // 尝试多个中间站（从近到远）
-      for (let mi = midStops.length - 1; mi >= 0 && results.length < 5; mi--) {
-        const targetMid = midStops[mi];
-        const midStation = Object.values(allStations).find(s => s.name === targetMid.stationName);
-        if (!midStation || seenTrains.has(t.trainNo)) continue;
-
-        const tr = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
-        const td = await tr.json();
-        if (td.status !== 0 || !td.data) continue;
-
-        const sameTrain = td.data.find(x => x.trainNo === t.trainNo);
-        if (sameTrain && hasTicket(sameTrain)) {
-          results.push({ train: sameTrain, endStation: targetMid.stationName, midCode: midStation.code });
-          seenTrains.add(t.trainNo);
-          break; // 每个车次只取一个最优方案
+            const sameTrain = td.data.find(x => x.trainNo === t.trainNo);
+            if (sameTrain && hasTicket(sameTrain)) {
+              results.push({ train: sameTrain, endStation: targetMid.stationName, midCode: midStation.code });
+              seenTrains.add(t.trainNo);
+              break; // 每个车次只取一个最优方案
+            }
+          }
         }
       }
     } catch (e) { /* skip */ }
-  }
+
+    done++;
+    if (onProgress) onProgress(done, checkTrains.length, t.trainNo);
+  });
+
   return results;
 }
 
