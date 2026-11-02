@@ -1086,7 +1086,7 @@ async function showBuyLong(trainNo, trainCode) {
       const stationEntry = Object.values(allStations).find(s => s.name === stop.stationName);
       if (!stationEntry) return null;
       try {
-        const tr = await fetch(`/api/ticket?from=${fromCode}&to=${stationEntry.code}&date=${date}${cityParam()}`);
+        const tr = await fetch(`/api/ticket?from=${fromCode}&to=${stationEntry.code}&date=${date}`);
         const td = await tr.json();
         if (td.status === 0 && td.data) {
           const sameTrain = td.data.find(t => t.trainNo === trainNo);
@@ -1272,6 +1272,9 @@ function hubParam() {
 }
 
 // 市内出发参数：勾选时把这个城市（地级市）所有车站一起查
+// 注意：只用于主列表查询。买长乘短/同车换乘/买短乘长 查的是"特定车次"，
+// 若也带上 cityFrom，每次余票查询会扇出到最多 8 个同城站，整体慢 8 倍且极易被限流。
+
 function cityParam() {
   var el = document.getElementById('useCityFrom');
   return (el && el.checked) ? '&cityFrom=1' : '';
@@ -1312,8 +1315,8 @@ async function autoBuyLong(trains, fromCode, toCode, date, onProgress) {
         const stops = sd.data;
         const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/, '')));
         if (toIdx >= 0) {
-          const furtherStops = stops.slice(toIdx + 1);
-          // 遍历所有更远站点（从近到远），找到第一个有票的即可
+          const furtherStops = stops.slice(toIdx + 1).slice(0, 4);
+          // 从近到远试最多 4 个更远站，找到第一个有票的即可
           for (const stop of furtherStops) {
             const endStation = Object.values(allStations).find(s => s.name === stop.stationName);
             if (!endStation) continue;
@@ -1322,7 +1325,7 @@ async function autoBuyLong(trains, fromCode, toCode, date, onProgress) {
             checkedPairs.add(pairKey);
 
             try {
-              const tr = await fetch(`/api/ticket?from=${fromCode}&to=${endStation.code}&date=${date}${cityParam()}`);
+              const tr = await fetch(`/api/ticket?from=${fromCode}&to=${endStation.code}&date=${date}`);
               const td = await tr.json();
               if (td.status !== 0 || !td.data) continue;
 
@@ -1408,16 +1411,20 @@ async function searchSameTrainSegmented(trains, fromCode, toCode, fromName, toNa
           const fromIdx = stops.findIndex(s => s.stationName.includes(fromName.replace(/站$/, '')));
           const toIdx = stops.findIndex(s => s.stationName.includes(toName.replace(/站$/, '')));
           if (fromIdx >= 0 && toIdx > fromIdx) {
-            // 遍历中间站（从远到近），找同车分段方案
+            // 遍历中间站（从远到近）找同车分段方案。
+            // 每站要查 2 次余票，站多时请求量翻倍，只从目的地往前试 4 个站
+            const MAX_MID_TRY = 4;
             const midStops = stops.slice(fromIdx + 1, toIdx);
-            for (let mi = midStops.length - 1; mi >= 0; mi--) {
+            let tried = 0;
+            for (let mi = midStops.length - 1; mi >= 0 && tried < MAX_MID_TRY; mi--) {
+              tried++;
               const mid = midStops[mi];
               const midStation = Object.values(allStations).find(s => s.name === mid.stationName);
               if (!midStation) continue;
 
               try {
                 // 查第一段：from → mid
-                const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}${cityParam()}`);
+                const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
                 const d1 = await r1.json();
                 if (d1.status !== 0 || !d1.data) continue;
                 const leg1Train = d1.data.find(x => x.trainNo === t.trainNo);
@@ -1474,12 +1481,14 @@ async function autoBuyShort(trains, fromCode, toCode, fromName, toName, date, on
         if (fromIdx >= 0 && toIdx > fromIdx) {
           // 尝试多个中间站（从近到远）
           const midStops = stops.slice(fromIdx + 1, toIdx);
-          for (let mi = midStops.length - 1; mi >= 0 && results.length < 5; mi--) {
+          let bsTried = 0;
+          for (let mi = midStops.length - 1; mi >= 0 && results.length < 5 && bsTried < 4; mi--) {
+            bsTried++;
             const targetMid = midStops[mi];
             const midStation = Object.values(allStations).find(s => s.name === targetMid.stationName);
             if (!midStation || seenTrains.has(t.trainNo)) continue;
 
-            const tr = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}${cityParam()}`);
+            const tr = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
             const td = await tr.json();
             if (td.status !== 0 || !td.data) continue;
 

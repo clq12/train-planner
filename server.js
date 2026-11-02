@@ -411,7 +411,16 @@ app.get('/api/ticket', async (req, res) => {
     return res.json(cachedTicket);
   }
 
-  const maxRetries = 4;
+  // 正在冷却期就直接返回，避免排长队干等（策略会并发发很多请求）
+  if (Date.now() < cooldownUntil) {
+    return res.status(429).json({
+      status: 1,
+      error: '12306 正在限流，请稍后重试',
+      cooldownMs: cooldownUntil - Date.now(),
+    });
+  }
+
+  const maxRetries = 2;   // 每次重试都要刷新 cookie，代价高；2 次足够覆盖偶发 302
   let lastErr = '';
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
