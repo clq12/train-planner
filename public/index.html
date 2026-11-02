@@ -1423,16 +1423,15 @@ async function searchSameTrainSegmented(trains, fromCode, toCode, fromName, toNa
               if (!midStation) continue;
 
               try {
-                // 查第一段：from → mid
-                const r1 = await fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`);
-                const d1 = await r1.json();
+                // 两段余票并发查（原来是一段等完再查下一段，白白多等一个来回）
+                const [d1, d2] = await Promise.all([
+                  fetch(`/api/ticket?from=${fromCode}&to=${midStation.code}&date=${date}`).then(r => r.json()),
+                  fetch(`/api/ticket?from=${midStation.code}&to=${toCode}&date=${date}`).then(r => r.json()),
+                ]);
                 if (d1.status !== 0 || !d1.data) continue;
                 const leg1Train = d1.data.find(x => x.trainNo === t.trainNo);
                 if (!leg1Train || !hasTicket(leg1Train)) continue;
 
-                // 查第二段：mid → to
-                const r2 = await fetch(`/api/ticket?from=${midStation.code}&to=${toCode}&date=${date}`);
-                const d2 = await r2.json();
                 if (d2.status !== 0 || !d2.data) continue;
                 const leg2Train = d2.data.find(x => x.trainNo === t.trainNo);
                 if (!leg2Train || !hasTicket(leg2Train)) continue;
