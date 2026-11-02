@@ -1566,6 +1566,96 @@ function sortFilterTrains(trains, st) {
   return list;
 }
 
+// ===== 方案级排序/筛选（中转换乘、同车换乘共用） =====
+// 原因：sortFilterTrains 只处理 s.trains，transferData / segData 原先直接按原始顺序渲染，
+// 所以这两类卡片的排序按钮点了等于没点。
+function stratTrainValue(t, key) {
+  if (!t) return Infinity;
+  switch (key) {
+    case 'time': return timeToMinutes(t.startTime || '99:99');
+    case 'arrive': return timeToMinutes(t.arriveTime || '99:99');
+    case 'duration': {
+      var p = (t.duration || '99:99').split(':');
+      return (parseInt(p[0]) || 0) * 60 + (parseInt(p[1]) || 0);
+    }
+    case 'price': return getMinAvailablePrice(t);
+    default: return 0;
+  }
+}
+
+function stratMinPrice(list) {
+  var m = Infinity;
+  for (var i = 0; i < (list || []).length; i++) {
+    var p = getMinAvailablePrice(list[i]);
+    if (p < m) m = p;
+  }
+  return m === Infinity ? 0 : m;
+}
+
+function stratInRange(m, startStr, endStr) {
+  var s = startStr ? timeToMinutes(startStr) : 0;
+  var e = endStr ? timeToMinutes(endStr) : 1440;
+  return s <= e ? (m >= s && m <= e) : (m >= s || m <= e);
+}
+
+function stratTrainFits(t, st) {
+  if (!t) return false;
+  if (st.depStart || st.depEnd) {
+    if (!stratInRange(timeToMinutes(t.startTime || '00:00'), st.depStart, st.depEnd)) return false;
+  }
+  if (st.arrStart || st.arrEnd) {
+    if (!stratInRange(timeToMinutes(t.arriveTime || '00:00'), st.arrStart, st.arrEnd)) return false;
+  }
+  return true;
+}
+
+function stratHasTimeFilter(st) {
+  return !!(st.depStart || st.depEnd || st.arrStart || st.arrEnd);
+}
+
+// 中转换乘：一个枢纽一块，用"这块里最好的一趟第一段"代表整块排序
+function stratPlanTransfer(list, st) {
+  var items = [];
+  for (var i = 0; i < list.length; i++) {
+    var leg1 = list[i].leg1 || [];
+    var leg2 = list[i].leg2 || [];
+    var usable1 = leg1.filter(function (t) { return t.canBuy && hasTicket(t); });
+    var pool = usable1.length ? usable1 : leg1;
+    if (!pool.length) continue;
+    if (stratHasTimeFilter(st) && !pool.some(function (t) { return stratTrainFits(t, st); })) continue;
+
+    var key;
+    if (st.sort === 'price') {
+      var usable2 = leg2.filter(function (t) { return t.canBuy && hasTicket(t); });
+      key = stratMinPrice(pool) + stratMinPrice(usable2.length ? usable2 : leg2);
+    } else {
+      key = Infinity;
+      for (var j = 0; j < pool.length; j++) {
+        var v = stratTrainValue(pool[j], st.sort);
+        if (v < key) key = v;
+      }
+    }
+    items.push({ data: list[i], orig: i, key: key });
+  }
+  items.sort(function (a, b) { return st.asc ? a.key - b.key : b.key - a.key; });
+  return items;
+}
+
+// 同车换乘：一条方案就是一趟车，按第一段的时刻排序
+function stratPlanSegments(list, st) {
+  var items = [];
+  for (var i = 0; i < list.length; i++) {
+    var t = list[i].leg1 || {};
+    if (stratHasTimeFilter(st) && !stratTrainFits(t, st)) continue;
+    var key = st.sort === 'price'
+      ? getMinAvailablePrice(t) + getMinAvailablePrice(list[i].leg2 || {})
+      : stratTrainValue(t, st.sort);
+    items.push({ data: list[i], orig: i, key: key });
+  }
+  items.sort(function (a, b) { return st.asc ? a.key - b.key : b.key - a.key; });
+  return items;
+}
+
 function stratSortBtns(idx, keys, labels, curSort, curAsc) {
   return keys.map(k =>
     '<button class="sort-btn '+(curSort===k?'active':'')+'" onclick="setStratSort('+idx+',\''+k+'\')">'+labels[k]+' '+(curSort===k?(curAsc?'↑':'↓'):'↑')+'</button>'
@@ -1660,11 +1750,15 @@ function buildStrategyContent(idx, s) {
     content += '</div>';
   }
 
-  // transfer - 使用共享的左右双列面板组件
+  // transfer - 使用共享的左右双列面板组件（按当前排序/筛选处理枢纽块）
   if (s.transferData && s.transferData.length) {
-    for (var ri = 0; ri < s.transferData.length; ri++) {
-      var r = s.transferData[ri];
-      var hubId = 'hub_' + idx + '_' + ri;
+    var hubPlan = stratPlanTransfer(s.transferData, st);
+    content += stratFilterChips(idx, st, hubPlan.length, s.transferData.length);
+    if (hubPlan.length === 0) content += '<div style="color:var(--text3);font-size:.82em;margin-top:6px">无符合时间条件的换乘方案</div>';
+    for (var ri = 0; ri < hubPlan.length; ri++) {
+      var r = hubPlan[ri].data;
+      // hubId 里保留原始索引，refreshDualPanel 靠它回查 s.transferData
+      var hubId = 'hub_' + idx + '_' + hubPlan[ri].orig;
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
       content += '<div style="font-weight:600">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘</div>';
@@ -1681,9 +1775,12 @@ function buildStrategyContent(idx, s) {
 
   // segmented - 同车换乘
   if (s.segData && s.segData.length) {
-    for (var si = 0; si < s.segData.length; si++) {
-      var sr = s.segData[si];
-      var segHubId = 'seg_' + idx + '_' + si;
+    var segPlan = stratPlanSegments(s.segData, st);
+    content += stratFilterChips(idx, st, segPlan.length, s.segData.length);
+    if (segPlan.length === 0) content += '<div style="color:var(--text3);font-size:.82em;margin-top:6px">无符合时间条件的同车分段方案</div>';
+    for (var si = 0; si < segPlan.length; si++) {
+      var sr = segPlan[si].data;
+      var segHubId = 'seg_' + idx + '_' + segPlan[si].orig;
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
       content += '<div style="font-weight:600">✂️ <span style="font-family:monospace;font-weight:700">'+sr.trainNo+'</span> 经 <span style="color:var(--accent)">'+sr.midStation+'</span> 同车分段</div>';
