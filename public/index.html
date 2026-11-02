@@ -378,10 +378,9 @@ body{font-size:1rem;line-height:1.6}
 .container{max-width:1320px;padding:22px 24px 48px}
 
 /* 直达车次列表：宽屏下改为两列，避免单列过长、两侧空 */
-@media (min-width:1180px){
-  .train-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
-  .train-list:empty::after{grid-column:1 / -1}
-}
+/* 双列显示由左上角开关控制（默认单列） */
+body.two-col .train-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+body.two-col .train-list:empty::after{grid-column:1 / -1}
 /* 更宽的屏幕上再放宽一点 */
 @media (min-width:1560px){
   .container{max-width:1460px}
@@ -522,6 +521,40 @@ body.elder .tip-content{font-size:.95em}
   .field-swap .btn-swap{flex:0 0 auto;align-self:center;width:44px;height:44px;padding:0;margin:4px auto;
     border-radius:50%;transform:rotate(90deg)}
 }
+
+/* ===== 左上角：单列 / 双列 切换 ===== */
+.layout-bar{
+  position:absolute;left:0;top:4px;display:inline-flex;align-items:center;gap:2px;
+  background:rgba(255,255,255,.9);border:1px solid #E3EFF3;border-radius:999px;
+  padding:4px;box-shadow:var(--shadow-sm);
+}
+.layout-btn{
+  border:none;background:transparent;color:var(--text2);cursor:pointer;
+  font-family:inherit;font-size:.78em;font-weight:600;letter-spacing:.5px;
+  padding:5px 12px;border-radius:999px;display:inline-flex;align-items:center;gap:5px;
+  transition:background .16s,color .16s,box-shadow .16s;
+}
+.layout-btn svg{opacity:.75}
+.layout-btn:hover:not(.active){background:rgba(13,148,136,.08);color:#0B7A70}
+.layout-btn.active{background:linear-gradient(135deg,#0D9488,#0283C7);color:#fff;box-shadow:0 3px 10px -4px rgba(13,148,136,.6)}
+.layout-btn.active svg{opacity:1}
+.layout-btn:focus-visible{outline:2px solid #0F766E;outline-offset:2px}
+
+/* 窄屏（两列会挤）与老年人模式下隐藏该开关，并强制单列 */
+@media (max-width:899px){
+  .layout-bar{display:none}
+  body.two-col .train-list{display:block}
+}
+body.elder .layout-bar{display:none}
+body.elder .train-list{display:block !important}
+
+/* 单列模式：整列收窄（搜索面板/统计条/车次卡统一宽度，边缘对齐） */
+body:not(.two-col) .container{max-width:1080px}
+body.elder .container{max-width:980px !important}
+/* 单列时把"时间轴"收住，避免中间的虚线被拉成一条长横线 */
+body:not(.two-col) .train-times{justify-content:space-between}
+body:not(.two-col) .time-arrow{flex:0 0 190px}
+body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
 </style>
 </head>
 <body>
@@ -531,6 +564,15 @@ body.elder .tip-content{font-size:.95em}
     <p><span class="hdr-prefix">车票路径规划器 · </span>直达没票，换条路走</p>
     <p class="sub">12306 实时数据 · 六种购票策略</p>
     <span class="badge-live">● 接入12306实时数据</span>
+
+    <div class="layout-bar" role="group" aria-label="列表布局">
+      <button class="layout-btn active" data-cols="1" aria-pressed="true">
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="10" height="3.2" rx="1" fill="currentColor"/><rect x="1" y="7.3" width="10" height="3.2" rx="1" fill="currentColor"/></svg>单列
+      </button>
+      <button class="layout-btn" data-cols="2" aria-pressed="false">
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1.5" width="4.4" height="9" rx="1" fill="currentColor"/><rect x="6.6" y="1.5" width="4.4" height="9" rx="1" fill="currentColor"/></svg>双列
+      </button>
+    </div>
 
     <div class="a11y-bar" role="group" aria-label="阅读设置">
       <label class="a11y-switch" title="开启后使用超大字号、更宽行距、更大间距，字号滑块不可用">
@@ -2843,6 +2885,33 @@ init();
     paint();
   });
 
+  paint();
+})();
+
+/* 列表布局：单列 / 双列（localStorage 持久化，默认单列） */
+(function () {
+  var body = document.body;
+  var btns = document.querySelectorAll('.layout-btn');
+  if (!btns.length) return;
+  var KEY = 'piaolu_cols';
+  var cols = localStorage.getItem(KEY) === '2' ? 2 : 1;
+
+  function paint() {
+    body.classList.toggle('two-col', cols === 2);
+    for (var i = 0; i < btns.length; i++) {
+      var on = parseInt(btns[i].getAttribute('data-cols'), 10) === cols;
+      btns[i].classList.toggle('active', on);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function () {
+      cols = parseInt(this.getAttribute('data-cols'), 10);
+      try { localStorage.setItem(KEY, cols); } catch (e) {}
+      paint();
+    });
+  }
   paint();
 })();
 </script>
