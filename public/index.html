@@ -12,18 +12,21 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#faf6f0;--card:#fff8ee;--card2:#fff3e0;--card-hover:#ffefc8;
-  --accent:#e67e22;--accent2:#e74c3c;--accent3:#f39c12;
-  --text:#3e2f1c;--text2:#8b7355;--text3:#bda77e;
-  --border:#e8d5b8;--success:#27ae60;--warn:#e67e22;--error:#e74c3c;
+  /* 票路 · 蓝绿清新主题 */
+  --bg:#F2F8FA;--card:#FFFFFF;--card2:#F7FCFD;--card-hover:#E6F4F1;
+  --accent:#0F766E;--accent2:#0369A1;--accent3:#0D9488;
+  --text:#0F2E36;--text2:#54727D;--text3:#8CA8B2;
+  --border:#D8E7EC;--success:#10B981;--warn:#F59E0B;--error:#EF4444;
+  --shadow-sm:0 1px 2px rgba(15,46,54,.04);
+  --shadow-md:0 1px 2px rgba(15,46,54,.04),0 8px 24px -10px rgba(15,46,54,.14);
 }
 body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5;-webkit-text-size-adjust:100%;text-size-adjust:100%;overflow-wrap:break-word;word-break:normal}
 .container{max-width:1100px;margin:0 auto;padding:16px}
 
 .header{text-align:center;padding:28px 0 18px}
-.header h1{font-size:1.9em;font-weight:800;background:linear-gradient(135deg,var(--accent),#d35400,var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
+.header h1{font-size:1.9em;font-weight:800;background:linear-gradient(135deg,var(--accent),#0F766E,var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
 .header p{color:var(--text2);font-size:.88em}
-.header .badge-live{display:inline-block;background:rgba(39,174,96,.1);color:var(--success);padding:2px 9px;border-radius:10px;font-size:.7em;font-weight:600;margin-top:6px;border:1px solid rgba(39,174,96,.2)}
+.header .badge-live{display:inline-block;background:rgba(16,185,129,.1);color:var(--success);padding:2px 9px;border-radius:10px;font-size:.7em;font-weight:600;margin-top:6px;border:1px solid rgba(16,185,129,.2)}
 
 .search-panel{background:var(--card);border-radius:14px;padding:20px;margin-bottom:16px;border:1px solid var(--border)}
 .search-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
@@ -40,12 +43,12 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .station-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--card2);border:1px solid var(--border);border-radius:9px;max-height:220px;overflow-y:auto;z-index:50;display:none;box-shadow:0 8px 30px rgba(0,0,0,.12)}
 .station-dropdown.show{display:block}
 .station-item{padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:background .15s;font-size:.85em}
-.station-item:hover,.station-item.active{background:rgba(230,126,34,.1)}
+.station-item:hover,.station-item.active{background:rgba(13,148,136,.1)}
 .station-item .sname{font-weight:500}.station-item .scode{color:var(--text3);font-size:.75em;margin-left:6px}
 .station-item .sdesc{color:var(--text2);font-size:.72em}
 
-.btn-search{padding:10px 24px;background:linear-gradient(135deg,var(--accent),#d35400);color:#fff;border:none;border-radius:9px;font-size:.92em;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s;white-space:nowrap}
-.btn-search:hover{transform:translateY(-1px);box-shadow:0 4px 18px rgba(230,126,34,.3)}
+.btn-search{padding:10px 24px;background:linear-gradient(135deg,var(--accent),#0F766E);color:#fff;border:none;border-radius:9px;font-size:.92em;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s;white-space:nowrap}
+.btn-search:hover{transform:translateY(-1px);box-shadow:0 4px 18px rgba(13,148,136,.3)}
 .btn-search:active{transform:scale(.97)}
 .btn-search:disabled{opacity:.5;cursor:not-allowed;transform:none}
 .btn-swap{padding:7px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text2);cursor:pointer;font-size:.95em;transition:all .2s;align-self:flex-end}
@@ -58,7 +61,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 
 .strategies{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
 .strat-tag{padding:4px 11px;border-radius:14px;font-size:.75em;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text2);transition:all .2s}
-.strat-tag.active{border-color:var(--accent);color:var(--accent);background:rgba(230,126,34,.08)}
+.strat-tag.active{border-color:var(--accent);color:var(--accent);background:rgba(13,148,136,.08)}
 .strat-tag:hover{border-color:var(--accent)}
 
 .stats-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
@@ -78,9 +81,9 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .train-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .train-no{font-size:1em;font-weight:700;font-family:'SF Mono',Consolas,monospace}
 .train-type{padding:2px 7px;border-radius:5px;font-size:.68em;font-weight:600;margin-left:6px}
-.type-g{background:rgba(39,174,96,.1);color:var(--success)}.type-d{background:rgba(230,126,34,.1);color:var(--accent)}
-.type-k{background:rgba(230,126,34,.1);color:var(--warn)}.type-z{background:rgba(211,84,0,.1);color:#d35400}
-.type-t{background:rgba(243,156,18,.1);color:#e67e22}
+.type-g{background:rgba(16,185,129,.1);color:var(--success)}.type-d{background:rgba(13,148,136,.1);color:var(--accent)}
+.type-k{background:rgba(13,148,136,.1);color:var(--warn)}.type-z{background:rgba(15,118,110,.1);color:#0F766E}
+.type-t{background:rgba(245,158,11,.1);color:#0D9488}
 
 .train-times{display:flex;align-items:center;gap:10px;margin-bottom:6px}
 .time-block{text-align:center}.time-block .t{font-size:1.2em;font-weight:700;font-family:'SF Mono',Consolas,monospace}
@@ -91,16 +94,16 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 
 .seats{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
 .seat{padding:2px 7px;border-radius:5px;font-size:.7em;background:var(--bg);border:1px solid var(--border)}
-.seat.has{border-color:rgba(39,174,96,.3);color:var(--success)}.seat.no{color:var(--text3)}
+.seat.has{border-color:rgba(16,185,129,.3);color:var(--success)}.seat.no{color:var(--text3)}
 .seat .stype{color:var(--text2);margin-right:3px}
 
 .timetable{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:none}
 .timetable.show{display:block}
 .tt-table{width:100%;border-collapse:collapse;font-size:.8em}
 .tt-table th{color:var(--text3);font-weight:500;text-align:left;padding:5px 7px;border-bottom:1px solid var(--border)}
-.tt-table td{padding:6px 7px;border-bottom:1px solid rgba(35,40,57,.5)}
-.tt-table tr:hover td{background:rgba(230,126,34,.04)}
-.tt-table .current{color:#d35400;font-weight:600}
+.tt-table td{padding:6px 7px;border-bottom:1px solid rgba(15,46,54,.12)}
+.tt-table tr:hover td{background:rgba(13,148,136,.04)}
+.tt-table .current{color:#0F766E;font-weight:600}
 .tt-table .tt-time{font-family:'SF Mono',Consolas,monospace}
 
 .route-card{background:var(--card);border-radius:11px;padding:14px;border:1px solid var(--border);margin-bottom:8px;transition:all .2s}
@@ -108,19 +111,19 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .route-card .route-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .route-card .route-name{font-weight:600;font-size:.92em}
 .route-card .route-badge{padding:2px 9px;border-radius:9px;font-size:.7em;font-weight:500}
-.badge-direct{background:rgba(39,174,96,.1);color:var(--success)}.badge-transfer{background:rgba(230,126,34,.1);color:var(--warn)}.badge-trick{background:rgba(230,126,34,.1);color:var(--accent)}
+.badge-direct{background:rgba(16,185,129,.1);color:var(--success)}.badge-transfer{background:rgba(13,148,136,.1);color:var(--warn)}.badge-trick{background:rgba(13,148,136,.1);color:var(--accent)}
 
 .route-trains{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
 .route-train-chip{padding:3px 9px;background:var(--bg);border:1px solid var(--border);border-radius:7px;font-size:.75em;font-family:'SF Mono',Consolas,monospace;cursor:pointer;transition:all .15s}
 .route-train-chip:hover{border-color:var(--accent);color:var(--accent)}
-.route-train-chip.has-t{border-color:rgba(39,174,96,.3);color:var(--success)}
+.route-train-chip.has-t{border-color:rgba(16,185,129,.3);color:var(--success)}
 
-.tip-box{background:rgba(243,156,18,.08);border:1px solid rgba(243,156,18,.2);border-radius:8px;padding:9px 12px;margin-top:8px;font-size:.8em;color:#b8621b}
+.tip-box{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:9px 12px;margin-top:8px;font-size:.8em;color:#0F766E}
 
 .empty-state{text-align:center;padding:44px 20px;color:var(--text2)}
 .empty-state .icon{font-size:2.3em;margin-bottom:10px}.empty-state h3{color:var(--text);margin-bottom:4px;font-size:1em}
 
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(62,47,28,.45);z-index:100;backdrop-filter:blur(4px)}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,46,54,.42);z-index:100;backdrop-filter:blur(4px)}
 .modal-overlay.show{display:flex;align-items:center;justify-content:center}
 .modal{background:var(--card);border-radius:14px;padding:22px;max-width:700px;width:92%;max-height:80vh;overflow-y:auto;border:1px solid var(--border)}
 .modal h2{margin-bottom:10px;font-size:1.05em}
@@ -142,8 +145,8 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .detail-card .train-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .detail-card .train-id{font-family:'SF Mono',Consolas,monospace;font-weight:700;font-size:.9em}
 .detail-card .train-status{font-size:.72em;padding:2px 7px;border-radius:5px}
-.detail-card .train-status.ok{background:rgba(39,174,96,.1);color:var(--success)}
-.detail-card .train-status.no{background:rgba(231,76,60,.1);color:var(--error)}
+.detail-card .train-status.ok{background:rgba(16,185,129,.1);color:var(--success)}
+.detail-card .train-status.no{background:rgba(239,68,68,.1);color:var(--error)}
 .detail-card .train-route{font-size:.82em;color:var(--text2);margin-bottom:4px}
 .detail-card .train-time{font-size:.85em;font-family:'SF Mono',Consolas,monospace}
 
@@ -165,7 +168,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .clear-filter{padding:5px 8px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);cursor:pointer;font-size:.75em;transition:all .2s}
 .clear-filter:hover{border-color:var(--error);color:var(--error)}
 .filter-chips{display:flex;gap:5px;flex-wrap:wrap}
-.filter-chip{display:flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(230,126,34,.08);border:1px solid rgba(230,126,34,.2);border-radius:12px;font-size:.73em;color:var(--accent);font-weight:500}
+.filter-chip{display:flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(13,148,136,.08);border:1px solid rgba(13,148,136,.2);border-radius:12px;font-size:.73em;color:var(--accent);font-weight:500}
 .filter-chip .chip-x{cursor:pointer;font-size:1.1em;opacity:.6;transition:opacity .15s}
 .filter-chip .chip-x:hover{opacity:1}
 .filter-count{font-size:.75em;color:var(--text2);margin-left:6px}
@@ -182,34 +185,34 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
   .sort-btns{flex-wrap:wrap}
   .route-train-chip{display:block;margin-bottom:4px;white-space:normal;word-break:break-all}
 }
-::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d4b896;border-radius:3px}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#C9DEE5;border-radius:3px}
 
 /* 自定义 tooltip — JS 定位，不溢出视口 */
 .price-tip{position:relative;display:inline-block}
-.price-tip .tip-content{display:none;position:fixed;background:#3e2f1c;color:#faf6f0;padding:10px 14px;border-radius:8px;font-size:.78em;font-weight:400;white-space:nowrap;z-index:200;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.25);line-height:1.8;max-width:320px;white-space:normal;word-break:break-all}
-.tip-real{color:#27ae60;font-weight:600}.tip-est{color:#f39c12;font-weight:600}
+.price-tip .tip-content{display:none;position:fixed;background:#0F2E36;color:#F2F8FA;padding:10px 14px;border-radius:8px;font-size:.78em;font-weight:400;white-space:nowrap;z-index:200;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.25);line-height:1.8;max-width:320px;white-space:normal;word-break:break-all}
+.tip-real{color:#10B981;font-weight:600}.tip-est{color:#F59E0B;font-weight:600}
 .tip-row{display:block}
 
 /* 回到顶部按钮 */
-.back-to-top{position:fixed;bottom:32px;right:32px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#d35400);color:#fff;border:none;font-size:1.2em;cursor:pointer;box-shadow:0 4px 16px rgba(230,126,34,.35);opacity:0;transform:translateY(20px);pointer-events:none;transition:opacity .25s,transform .25s;z-index:90;display:flex;align-items:center;justify-content:center}
+.back-to-top{position:fixed;bottom:32px;right:32px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#0F766E);color:#fff;border:none;font-size:1.2em;cursor:pointer;box-shadow:0 4px 16px rgba(13,148,136,.35);opacity:0;transform:translateY(20px);pointer-events:none;transition:opacity .25s,transform .25s;z-index:90;display:flex;align-items:center;justify-content:center}
 .back-to-top.show{opacity:1;transform:translateY(0);pointer-events:auto}
-.back-to-top:hover{box-shadow:0 6px 24px rgba(230,126,34,.5);transform:translateY(-2px)}
+.back-to-top:hover{box-shadow:0 6px 24px rgba(13,148,136,.5);transform:translateY(-2px)}
 .back-to-top:active{transform:scale(.92)}
 
 /* 换乘双列面板 */
 .dual-panel{display:flex;gap:10px}
 .dual-panel-leg{flex:1;min-width:0}
-.leg-row{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;transition:all .15s;flex-wrap:wrap}
+.leg-row{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(15,46,54,.08);font-size:.8em;cursor:pointer;transition:all .15s;flex-wrap:wrap}
 .leg-row .lr-no{font-family:monospace;font-weight:700;min-width:52px}
 .leg-row .lr-time{font-family:monospace;font-size:.95em}
 button.hub-badge{border:none;cursor:pointer;font-family:inherit;transition:transform .12s,box-shadow .12s,outline-color .12s}
 button.hub-badge:hover{transform:translateY(-1px);box-shadow:0 1px 4px rgba(0,0,0,.14)}
 button.hub-badge.active{outline:2px solid currentColor;outline-offset:1px}
 .hub-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.68em;font-weight:600;line-height:1.6;white-space:nowrap}
-.badge-price{background:rgba(230,126,34,.16);color:var(--accent)}
-.badge-time{background:rgba(39,174,96,.16);color:var(--success)}
-.badge-arrive{background:rgba(52,152,219,.16);color:#2b7fd4}
-.leg-row .lr-day{font-family:monospace;font-size:.72em;line-height:1;padding:2px 4px;border-radius:4px;background:rgba(230,126,34,.18);color:var(--accent);font-weight:600;white-space:nowrap}
+.badge-price{background:rgba(13,148,136,.16);color:var(--accent)}
+.badge-time{background:rgba(16,185,129,.16);color:var(--success)}
+.badge-arrive{background:rgba(52,152,219,.16);color:#0284C7}
+.leg-row .lr-day{font-family:monospace;font-size:.72em;line-height:1;padding:2px 4px;border-radius:4px;background:rgba(13,148,136,.18);color:var(--accent);font-weight:600;white-space:nowrap}
 .leg-row .lr-seats{margin-left:auto;display:flex;flex-wrap:wrap;gap:3px}
 .leg-row .lr-price{min-width:45px;text-align:right}
 .leg-row.no-ticket{display:none}
@@ -217,7 +220,7 @@ button.hub-badge.active{outline:2px solid currentColor;outline-offset:1px}
 .show-all .leg-row.no-ticket .lr-no::after{content:'无票';font-size:.65em;color:var(--error);margin-left:4px;font-weight:400}
 .hub-ticket-toggle{padding:3px 10px;border-radius:12px;font-size:.72em;cursor:pointer;border:1.5px solid var(--border);background:var(--bg);color:var(--text2);font-weight:600;transition:all .2s}
 .hub-ticket-toggle:hover{border-color:var(--accent);color:var(--accent)}
-.hub-ticket-toggle.active{border-color:var(--accent);color:var(--accent);background:rgba(230,126,34,.08)}
+.hub-ticket-toggle.active{border-color:var(--accent);color:var(--accent);background:rgba(13,148,136,.08)}
 
 @media(max-width:640px){
   .dual-panel{flex-direction:column;gap:8px}
@@ -227,13 +230,152 @@ button.hub-badge.active{outline:2px solid currentColor;outline-offset:1px}
   .leg-row .lr-seats{margin-left:0;width:100%;margin-top:4px}
   .leg-row .lr-price{min-width:auto}
 }
+
+/* ===== 票路 · 蓝绿主题视觉精修（只调样式，不动任何交互逻辑） ===== */
+body{
+  background:
+    radial-gradient(1200px 520px at 50% -220px, #E4F3F0 0%, rgba(228,243,240,0) 70%),
+    linear-gradient(180deg, #F4FAFB 0%, #EDF6F8 100%);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(13,148,136,.18);color:#0F2E36}
+
+.container{max-width:1120px;padding:18px 16px 40px}
+
+/* 头部：加大留白，标题渐变改为 青→蓝 */
+.header{padding:34px 0 22px}
+.header h1{font-size:2.05em;letter-spacing:-.3px;line-height:1.25;
+  background:linear-gradient(135deg,#0D9488 0%,#0E7490 45%,#0284C7 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.header p{color:var(--text2);font-size:.9em;margin-top:6px}
+.header .badge-live{
+  background:rgba(13,148,136,.10);color:#0B7A70;border:1px solid rgba(13,148,136,.18);
+  padding:3px 10px;border-radius:999px;font-weight:600;letter-spacing:.2px;
+  display:inline-flex;align-items:center;gap:4px;
+}
+
+/* 卡片统一：白底 + 冷调柔和投影，替代原来的纯描边 */
+.search-panel,.tabs,.detail-card,.route-card,.stat-card,.strat-tag{
+  background:var(--card);
+  border:1px solid #E3EFF3;
+  box-shadow:var(--shadow-md);
+}
+.search-panel{padding:22px;border-radius:16px;margin-bottom:18px}
+.tabs{border-radius:14px;padding:4px;margin-bottom:16px}
+.station-dropdown{border-radius:12px;border-color:#E3EFF3;box-shadow:0 12px 32px -12px rgba(15,46,54,.22);background:#fff}
+.station-item{border-radius:8px;margin:2px 6px}
+.station-item:hover,.station-item.active{background:rgba(13,148,136,.09);color:#0B7A70}
+
+/* 表单控件 */
+.field label{color:var(--text2);letter-spacing:.6px;font-weight:600;font-size:.72em}
+.field input{background:#fff;border:1.5px solid var(--border);border-radius:10px;transition:border-color .18s,box-shadow .18s}
+.field input:hover{border-color:#C2DBE2}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(13,148,136,.13);background:#fff}
+.opt-check input{accent-color:var(--accent)}
+.opt-hint{color:var(--text3)}
+
+/* 主按钮：青→蓝渐变 */
+.btn-search{
+  background:linear-gradient(135deg,#0D9488 0%,#0E7490 55%,#0284C7 100%);
+  border-radius:10px;letter-spacing:.3px;
+  box-shadow:0 6px 16px -6px rgba(13,148,136,.55);
+}
+.btn-search:hover{box-shadow:0 10px 24px -8px rgba(13,148,136,.6);transform:translateY(-1px)}
+.btn-search:focus-visible,.btn-swap:focus-visible,.tab:focus-visible,.sort-btn:focus-visible{
+  outline:2px solid #0D9488;outline-offset:2px
+}
+.btn-swap{background:#fff;border:1px solid var(--border);color:var(--text2)}
+.btn-swap:hover{border-color:var(--accent);color:var(--accent);background:rgba(13,148,136,.06)}
+
+/* 标签页：选中态用青绿实底 + 轻投影 */
+.tabs{background:#fff}
+.tab{border-radius:10px;font-weight:600;color:var(--text2);transition:background .18s,color .18s,box-shadow .18s}
+.tab:hover:not(.active){background:rgba(13,148,136,.08);color:#0B7A70}
+.tab.active{background:linear-gradient(135deg,#0D9488,#0E7490);color:#fff;box-shadow:0 4px 12px -4px rgba(13,148,136,.55)}
+
+/* 进度条 / 统计条 / 分隔层次 */
+.progress-bar .bar{background:rgba(13,148,136,.12);border-radius:999px}
+.progress-bar .fill{background:linear-gradient(90deg,#0D9488,#0284C7);border-radius:999px}
+.stats-bar{border-radius:12px}
+.sort-filter-panel{background:#F7FCFD;border:1px solid #E7F2F5;border-radius:12px}
+.sort-btn{border-radius:999px;border:1px solid var(--border);background:#fff;color:var(--text2);transition:all .16s}
+.sort-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(13,148,136,.06)}
+.sort-btn.active{background:rgba(13,148,136,.12);border-color:rgba(13,148,136,.45);color:#0B7A70;font-weight:600}
+.filter-chip{border-radius:999px}
+
+/* 车次行与卡片：更细的分隔线、悬停青绿高亮 */
+.train-card{border-radius:14px;box-shadow:var(--shadow-sm);transition:box-shadow .2s,transform .2s,border-color .2s}
+.train-card:hover{box-shadow:var(--shadow-md);border-color:#CFE5EB}
+.leg-row{transition:background .16s}
+.hub-badge{border-radius:999px}
+.tip-box{background:#F4FAFB;border-left-color:var(--accent);color:var(--text2);border-radius:0 10px 10px 0}
+.route-train-chip{border-radius:999px}
+.back-to-top{box-shadow:0 8px 20px -8px rgba(13,148,136,.5)}
+
+/* 滚动条与动效偏好 */
+@media (prefers-reduced-motion: no-preference){
+  .train-card,.search-panel,.btn-search{will-change:auto}
+}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#CDE3E8;border-radius:999px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#A9CBD4;background-clip:padding-box}
+
+/* 标题：纯文字 + 渐变下划线，避免 emoji 跨平台渲染不一致 */
+.header h1{font-size:2.15em;letter-spacing:4px;font-weight:800;padding-bottom:2px}
+.header h1::after{
+  content:'';display:block;width:46px;height:3px;margin:12px auto 0;border-radius:3px;
+  background:linear-gradient(90deg,#0D9488,#0284C7);
+}
+/* 三个最优标签统一形状与描边，只靠色相区分语义 */
+.hub-badge{
+  padding:1px 9px;border-radius:999px;border:1px solid transparent;
+  font-weight:600;letter-spacing:.2px;line-height:1.7;
+}
+.badge-price{background:rgba(13,148,136,.10);border-color:rgba(13,148,136,.28);color:#0B7A70}
+.badge-time{background:rgba(16,185,129,.10);border-color:rgba(16,185,129,.30);color:#0B7A70}
+.badge-arrive{background:rgba(3,105,161,.10);border-color:rgba(3,105,161,.26);color:#0369A1}
+/* 枢纽内层卡片：更浅的分层，避免和外层白卡“打架” */
+.route-card .route-card, .strategy-section div[style*="background:var(--bg)"]{background:#FAFDFE}
+
+/* 副标题两级 */
+.header p.sub{font-size:.82em;color:var(--text3);margin-top:2px;letter-spacing:.3px}
+/* 空状态：未开始查询时给个引导，避免首屏看起来“空得吓人” */
+#trainList:empty::after{
+  content:'输入出发站和目的地，点「查询」开始找方案';
+  display:block;text-align:center;padding:56px 0;color:var(--text3);
+  font-size:.88em;letter-spacing:.4px;
+}
+#loading.show + #trainList:empty::after{display:none}
+
+/* ===== 移动端排版收紧 ===== */
+@media (max-width:640px){
+  .header{padding:24px 0 16px}
+  .header h1{font-size:1.85em;letter-spacing:3px}
+  .header p{font-size:.86em}
+  .search-panel{padding:16px;border-radius:14px}
+  .search-row{gap:8px}
+  .field label{margin-bottom:3px}
+  .field input{padding:9px 12px}
+  /* 交换按钮从竖排中“跳出来”，改成居中的小圆钮 */
+  .btn-swap{align-self:center;transform:rotate(90deg);padding:6px 10px;border-radius:999px}
+  .btn-swap:hover{transform:rotate(270deg)}
+  /* 日期字段在桌面被限制 140px，移动端放宽到整行 */
+  .field[style*="max-width:140px"]{max-width:none !important;width:100%}
+  .btn-search{width:100%;padding:11px 20px}
+  .search-options{gap:8px 14px;margin-top:12px}
+  .opt-hint{width:100%;margin-top:2px}
+  #trainList:empty::after{padding:40px 12px;font-size:.84em}
+}
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <h1>🚄 票路</h1>
-    <p>车票路径规划器 · 直达没票？换条路走 —— 12306 实时数据，六种购票策略一次算清</p>
+    <h1>票路</h1>
+    <p>车票路径规划器 · 直达没票，换条路走</p>
+    <p class="sub">12306 实时数据 · 六种购票策略一次算清</p>
     <span class="badge-live">● 接入12306实时数据</span>
   </div>
 
@@ -1920,7 +2062,7 @@ function buildStrategyContent(idx, s) {
       content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px">第二段：'+escapeHTML(sr.midStation)+' → '+escapeHTML(segToName)+'</div>';
       content += buildSameTrainSegRow(sr.leg2, sr.trainNo);
       content += '</div>';
-      content += '<div style="margin-top:8px;padding:8px 10px;background:rgba(39,174,96,.06);border-radius:6px;font-size:.75em;color:var(--text2)">💡 同车分段：同一趟车在'+escapeHTML(sr.midStation)+'拆分购票，无需下车换乘，刷两次身份证即可</div>';
+      content += '<div style="margin-top:8px;padding:8px 10px;background:rgba(16,185,129,.06);border-radius:6px;font-size:.75em;color:var(--text2)">💡 同车分段：同一趟车在'+escapeHTML(sr.midStation)+'拆分购票，无需下车换乘，刷两次身份证即可</div>';
       content += '</div>';
     }
   }
@@ -1953,13 +2095,13 @@ function buildStrategyContent(idx, s) {
       content += '<span style="font-family:monospace;font-weight:700;font-size:.9em">'+escapeHTML(br.train.trainNo)+'</span>';
       content += '<div style="display:flex;align-items:center;gap:8px">';
       content += '<span class="price-tip" style="color:var(--accent);font-size:.78em;font-weight:600;cursor:help">'+pfx2+price2+'起<span class="tip-content">'+tip2+'</span></span>';
-      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(39,174,96,.1);border-radius:4px;color:var(--success);font-weight:600">'+seatStr2+'</span>';
+      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(16,185,129,.1);border-radius:4px;color:var(--success);font-weight:600">'+seatStr2+'</span>';
       content += '</div></div>';
       content += '<div style="display:flex;gap:10px;align-items:center;margin:4px 0">';
       content += '<span style="font-family:monospace;font-weight:600">'+escapeHTML(br.train.startTime)+'</span>';
       content += '<span style="color:var(--text2)">→</span>';
       content += '<span style="font-family:monospace">'+escapeHTML(br.train.arriveTime)+'</span>';
-      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(230,126,34,.1);border-radius:4px;color:var(--accent)">买到'+escapeHTML(br.endStation)+'</span>';
+      content += '<span style="font-size:.75em;padding:2px 8px;background:rgba(13,148,136,.1);border-radius:4px;color:var(--accent)">买到'+escapeHTML(br.endStation)+'</span>';
       content += '</div>';
       content += '<div class="seats" style="margin-top:4px">';
       for (var si2 = 0; si2 < seats2.length; si2++) {
@@ -1998,7 +2140,7 @@ function buildLegRow(t, hubId, leg, idx, options) {
   var panelState = _dualPanelState[hubId] || {};
   var isSelected = panelState[leg] === idx;
   var hasAnyTicket = t.canBuy && hasTicket(t);
-  var bg = isSelected ? 'background:rgba(230,126,34,.12);border-left:3px solid var(--accent)' : 'border-left:3px solid transparent';
+  var bg = isSelected ? 'background:rgba(13,148,136,.12);border-left:3px solid var(--accent)' : 'border-left:3px solid transparent';
   var cls = 'leg-row' + (hasAnyTicket ? '' : ' no-ticket');
   var onClick = ' onclick="selectDualPanel(\''+hubId+'\',\''+leg+'\','+idx+')"';
 
@@ -2046,7 +2188,7 @@ function buildDualLegPanel(hubData, options) {
   content += '</div></div>';
   content += '</div>';
   // 汇总条：选中后显示总时间和总花费
-  content += '<div id="'+hubId+'_summary" style="margin-top:8px;display:none;padding:8px 12px;background:rgba(230,126,34,.06);border:1px solid rgba(230,126,34,.15);border-radius:8px;font-size:.82em"></div>';
+  content += '<div id="'+hubId+'_summary" style="margin-top:8px;display:none;padding:8px 12px;background:rgba(13,148,136,.06);border:1px solid rgba(13,148,136,.15);border-radius:8px;font-size:.82em"></div>';
   if (note) {
     content += '<div style="margin-top:6px;font-size:.75em;color:var(--text2)">'+note+'</div>';
   }
@@ -2085,7 +2227,7 @@ function buildDualLegPanelSorted(hubData, sortedLeg1, sortedOrigIndices, options
   content += '</div></div>';
   content += '</div>';
   // 汇总条：选中后显示总时间和总花费
-  content += '<div id="'+hubId+'_summary" style="margin-top:8px;display:none;padding:8px 12px;background:rgba(230,126,34,.06);border:1px solid rgba(230,126,34,.15);border-radius:8px;font-size:.82em"></div>';
+  content += '<div id="'+hubId+'_summary" style="margin-top:8px;display:none;padding:8px 12px;background:rgba(13,148,136,.06);border:1px solid rgba(13,148,136,.15);border-radius:8px;font-size:.82em"></div>';
   if (note) {
     content += '<div style="margin-top:6px;font-size:.75em;color:var(--text2)">'+note+'</div>';
   }
@@ -2156,7 +2298,7 @@ function refreshDualPanel(hubId) {
       var t1 = r.leg1[i];
       var hasAnyTicket1 = t1 && t1.canBuy && hasTicket(t1);
       if (i === selectedLeg1Display) {
-        rows1[i].style.background = 'rgba(230,126,34,.12)';
+        rows1[i].style.background = 'rgba(13,148,136,.12)';
         rows1[i].style.borderLeft = '3px solid var(--accent)';
       } else {
         rows1[i].style.background = '';
@@ -2444,7 +2586,7 @@ function seatTagsHTML(t) {
   const avail = getAvailableSeats(t);
   if (!avail.length) return '';
   return avail.map(s =>
-    `<span style="font-size:.7em;padding:1px 5px;background:rgba(39,174,96,.08);border:1px solid rgba(39,174,96,.2);border-radius:3px;color:var(--success);margin-left:3px">${s.label}${s.count!=='有'?s.count:''}</span>`
+    `<span style="font-size:.7em;padding:1px 5px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:3px;color:var(--success);margin-left:3px">${s.label}${s.count!=='有'?s.count:''}</span>`
   ).join('');
 }
 
