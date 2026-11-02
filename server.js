@@ -847,10 +847,48 @@ app.get('/api/transfer', async (req, res) => {
       });
     }
 
+    // 追加「出发地 / 目的地同城」的其他车站作为枢纽。
+    // 例：宁海(宁波市) → 项城(周口市)，宁海是小站，需要先到宁波再走干线，
+    // 但宁波不在固定枢纽清单里，导致只算出"南京换/合肥换"这种绕远方案。
+    function citySiblings(code) {
+      if (!stationCache || !stationCache[code]) return [];
+      const self = stationCache[code];
+      if (!self.cityCode) return [];
+      return Object.values(stationCache)
+        .filter(st => st.cityCode === self.cityCode && st.code !== code)
+        // 与城市同名的站优先（"宁波" 排在 "宁波东" 前面）
+        .sort((a, b) => (a.name === self.city ? 0 : 1) - (b.name === self.city ? 0 : 1) || a.index - b.index)
+        .slice(0, 3)
+        .map(st => ({ name: st.name, code: st.code }));
+    }
+
+    let extraHubs = [];
+    if (!transferStation) {
+      const seenCode = new Set(hubPool.map(h => h.code));
+      const seenCity = new Set(hubPool.map(h => cityKey(h.name)));
+      const perSide = { from: 0, to: 0 };
+      const pairs = [
+        ['from', citySiblings(from)],
+        ['to', citySiblings(to)],
+      ];
+      for (const [side, list] of pairs) {
+        for (const st of list) {
+          if (perSide[side] >= 2) break;              // 每侧最多补 2 个，避免请求量翻倍
+          const key = cityKey(st.name);
+          if (seenCode.has(st.code) || seenCity.has(key)) continue; // 同城只留一个（宁波东/宁波 不重复）
+          seenCode.add(st.code);
+          seenCity.add(key);
+          extraHubs.push(st);
+          perSide[side]++;
+        }
+      }
+    }
+
     const results = [];
     const maxTransferChecks = transferStation ? 1 : (allHubs ? hubPool.length : 20);
-    const hubsToCheck = hubPool.slice(0, maxTransferChecks);
-    console.log(`🔀 Transfer hubs: ${hubsToCheck.length}/${hubPool.length}（${allHubs ? '全部枢纽' : '常见 20 个'}）`);
+    let hubsToCheck = hubPool.slice(0, maxTransferChecks);
+    if (extraHubs.length) hubsToCheck = [...extraHubs, ...hubsToCheck];
+    console.log(`🔀 Transfer hubs: ${hubsToCheck.length}/${hubPool.length}（${allHubs ? '全部枢纽' : '常见 20 个'}${extraHubs.length ? ` + 同城 ${extraHubs.map(h => h.name).join('/')}` : ''}）`);
     const HUB_CONCURRENCY = Math.max(1, parseInt(process.env.HUB_CONCURRENCY || '5', 10));
 
     // 单个枢纽：第一段 + 第二段（当天/次日/第三天，三天并发），返回可换乘组合
