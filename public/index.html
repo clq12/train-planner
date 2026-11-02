@@ -197,6 +197,10 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .leg-row{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;transition:all .15s;flex-wrap:wrap}
 .leg-row .lr-no{font-family:monospace;font-weight:700;min-width:52px}
 .leg-row .lr-time{font-family:monospace;font-size:.95em}
+.hub-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.68em;font-weight:600;line-height:1.6;white-space:nowrap}
+.badge-price{background:rgba(230,126,34,.16);color:var(--accent)}
+.badge-time{background:rgba(39,174,96,.16);color:var(--success)}
+.badge-arrive{background:rgba(52,152,219,.16);color:#2b7fd4}
 .leg-row .lr-day{font-family:monospace;font-size:.72em;line-height:1;padding:2px 4px;border-radius:4px;background:rgba(230,126,34,.18);color:var(--accent);font-weight:600;white-space:nowrap}
 .leg-row .lr-seats{margin-left:auto;display:flex;flex-wrap:wrap;gap:3px}
 .leg-row .lr-price{min-width:45px;text-align:right}
@@ -1613,6 +1617,37 @@ function stratHasTimeFilter(st) {
   return !!(st.depStart || st.depEnd || st.arrStart || st.arrEnd);
 }
 
+// 计算某个枢纽块里"能接上的最优组合"的三项指标（用于打「价格最低/时间最短/到达最快」标签）
+// 返回 { price: 总价最低, duration: 全程最短, arrive: 到达最早 }（绝对分钟）
+function hubBestMetrics(r, ticketedOnly) {
+  var best = { price: Infinity, duration: Infinity, arrive: Infinity };
+  if (!r || !r.leg1 || !r.leg2 || !r.compatibility) return best;
+  for (var i = 0; i < r.leg1.length; i++) {
+    var t1 = r.leg1[i];
+    var compat = r.compatibility[i] || [];
+    if (!compat.length) continue;
+    if (ticketedOnly && !(t1.canBuy && hasTicket(t1))) continue;
+    var p1 = getMinAvailablePrice(t1);
+    var start1 = timeToMinutes(t1.startTime);
+    var arr1Abs = start1 + durToMinutes(t1.duration);
+    for (var k = 0; k < compat.length; k++) {
+      var t2 = r.leg2[compat[k]];
+      if (!t2) continue;
+      if (ticketedOnly && !(t2.canBuy && hasTicket(t2))) continue;
+      var dep2Abs = (t2.dayOffset || 0) * 1440 + timeToMinutes(t2.startTime);
+      if (dep2Abs < arr1Abs + 20) continue;            // 兜底：确实接得上
+      var arriveAbs = dep2Abs + durToMinutes(t2.duration);
+      var total = arriveAbs - start1;                  // 全程耗时（含换乘等待）
+      if (total < best.duration) best.duration = total;
+      if (arriveAbs < best.arrive) best.arrive = arriveAbs;
+      // 票价缺失时 getMinAvailablePrice 可能返回 0，不能拿它比价格，否则会被误标"价格最低"
+      var p2 = getMinAvailablePrice(t2);
+      if (p1 > 0 && p2 > 0 && p1 + p2 < best.price) best.price = p1 + p2;
+    }
+  }
+  return best;
+}
+
 // 中转换乘：一个枢纽一块，用"这块里最好的一趟第一段"代表整块排序
 function stratPlanTransfer(list, st) {
   var items = [];
@@ -1753,6 +1788,21 @@ function buildStrategyContent(idx, s) {
   // transfer - 使用共享的左右双列面板组件（按当前排序/筛选处理枢纽块）
   if (s.transferData && s.transferData.length) {
     var hubPlan = stratPlanTransfer(s.transferData, st);
+    // 先算出每个枢纽的最优指标，找出全局最优再打标签
+    // 优先只统计"两段都有票"的组合；若整个枢纽都没票，再退回全部车次
+    var hubMetrics = hubPlan.map(function (x) {
+      var m = hubBestMetrics(x.data, true);
+      if (!isFinite(m.price) && !isFinite(m.duration) && !isFinite(m.arrive)) {
+        m = hubBestMetrics(x.data, false);
+      }
+      return m;
+    });
+    var bestP = Infinity, bestD = Infinity, bestA = Infinity;
+    hubMetrics.forEach(function (m) {
+      if (m.price < bestP) bestP = m.price;
+      if (m.duration < bestD) bestD = m.duration;
+      if (m.arrive < bestA) bestA = m.arrive;
+    });
     content += stratFilterChips(idx, st, hubPlan.length, s.transferData.length);
     if (hubPlan.length === 0) content += '<div style="color:var(--text3);font-size:.82em;margin-top:6px">无符合时间条件的换乘方案</div>';
     for (var ri = 0; ri < hubPlan.length; ri++) {
@@ -1761,7 +1811,12 @@ function buildStrategyContent(idx, s) {
       var hubId = 'hub_' + idx + '_' + hubPlan[ri].orig;
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
-      content += '<div style="font-weight:600">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘</div>';
+      var hubBadges = '';
+      var hm = hubMetrics[ri] || {};
+      if (isFinite(bestP) && hm.price === bestP) hubBadges += '<span class="hub-badge badge-price">价格最低</span>';
+      if (isFinite(bestD) && hm.duration === bestD) hubBadges += '<span class="hub-badge badge-time">时间最短</span>';
+      if (isFinite(bestA) && hm.arrive === bestA) hubBadges += '<span class="hub-badge badge-arrive">到达最快</span>';
+      content += '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:6px">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘'+hubBadges+'</div>';
       content += '<div style="display:flex;align-items:center;gap:8px">';
       var r1WithTicket = r.leg1.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
       var r2WithTicket = r.leg2.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
