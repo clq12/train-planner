@@ -854,10 +854,15 @@ app.get('/api/transfer', async (req, res) => {
       if (!stationCache || !stationCache[code]) return [];
       const self = stationCache[code];
       if (!self.cityCode) return [];
+      const rank = (st) => {
+        if (st.name === self.city) return 0;
+        if (st.name.startsWith(self.city)) return 10 + st.name.length;
+        return 100 + st.name.length;
+      };
       return Object.values(stationCache)
         .filter(st => st.cityCode === self.cityCode && st.code !== code)
-        // 与城市同名的站优先（"宁波" 排在 "宁波东" 前面）
-        .sort((a, b) => (a.name === self.city ? 0 : 1) - (b.name === self.city ? 0 : 1) || a.index - b.index)
+        // 同名站 > 以城市名开头（上海南/上海西）> 其他（练塘/海湾这类小站垫底）
+        .sort((a, b) => rank(a) - rank(b) || a.index - b.index)
         .slice(0, 3)
         .map(st => ({ name: st.name, code: st.code }));
     }
@@ -894,29 +899,9 @@ app.get('/api/transfer', async (req, res) => {
     // 单个枢纽：第一段 + 第二段（当天/次日/第三天，三天并发），返回可换乘组合
     async function checkHub(hub) {
       try {
-        // 第一段：from → 中转站（出发日期），命中缓存则不再打 12306
-        let leg1 = null;
-        const cached1 = cacheGet(from, hub.code, date);
-        if (cached1) {
-          leg1 = cached1.data;
-        } else {
-          const cookies1 = await getCookies();
-          const url1 = `${API_BASE}/otn/leftTicket/queryG?leftTicketDTO.train_date=${date}&leftTicketDTO.from_station=${from}&leftTicketDTO.to_station=${hub.code}&purpose_codes=ADULT`;
-          const resp1 = await throttledFetch(url1, {
-            headers: buildHeaders(cookies1), redirect: 'manual', timeout: 12000,
-          });
-          if (resp1.status === 302) { triggerCooldown(3000); await forceRefreshCookies(); return null; }
-          if (resp1.status !== 200) return null;
-          let data1;
-          try { data1 = await resp1.json(); } catch (e) { return null; }
-          if (!data1?.data?.result?.length) return null;
-
-          // 不过滤 canBuy，显示全部车次（含无票），由前端标灰
-          leg1 = parseTicketData(data1.data);
-          cacheSet(from, hub.code, date, { status: 0, data: leg1 });
-        }
-        if (!leg1 || leg1.length === 0) return null;
-
+        // 先查第二段（枢纽 → 目的地）：如果这个枢纽到目的地根本没有直达车，
+        // 就直接跳过，连第一段都不用查——省请求，也天然实现了
+        // 「同市其他站有直达的才当中转站」。
         // 第二段：当天 + 第二天 + 第三天（支持跨日期换乘），三个日期并发查
         const dateNext2 = nextDay(dateNext);
         const leg2Groups = await Promise.all([date, dateNext, dateNext2].map(async (d) => {
@@ -941,6 +926,30 @@ app.get('/api/transfer', async (req, res) => {
         const leg2All = [];
         leg2Groups.forEach(group => { leg2All.push(...group); });
         if (leg2All.length === 0) return null;
+
+
+        // 第一段：from → 中转站（出发日期），命中缓存则不再打 12306
+        let leg1 = null;
+        const cached1 = cacheGet(from, hub.code, date);
+        if (cached1) {
+          leg1 = cached1.data;
+        } else {
+          const cookies1 = await getCookies();
+          const url1 = `${API_BASE}/otn/leftTicket/queryG?leftTicketDTO.train_date=${date}&leftTicketDTO.from_station=${from}&leftTicketDTO.to_station=${hub.code}&purpose_codes=ADULT`;
+          const resp1 = await throttledFetch(url1, {
+            headers: buildHeaders(cookies1), redirect: 'manual', timeout: 12000,
+          });
+          if (resp1.status === 302) { triggerCooldown(3000); await forceRefreshCookies(); return null; }
+          if (resp1.status !== 200) return null;
+          let data1;
+          try { data1 = await resp1.json(); } catch (e) { return null; }
+          if (!data1?.data?.result?.length) return null;
+
+          // 不过滤 canBuy，显示全部车次（含无票），由前端标灰
+          leg1 = parseTicketData(data1.data);
+          cacheSet(from, hub.code, date, { status: 0, data: leg1 });
+        }
+        if (!leg1 || leg1.length === 0) return null;
 
         // 判断某趟第一段能否接上某趟第二段（换乘间隔 20 分钟 ~ 12 小时）
         function canConnect(t1, t2) {
