@@ -197,6 +197,9 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .leg-row{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid rgba(35,40,57,.3);font-size:.8em;cursor:pointer;transition:all .15s;flex-wrap:wrap}
 .leg-row .lr-no{font-family:monospace;font-weight:700;min-width:52px}
 .leg-row .lr-time{font-family:monospace;font-size:.95em}
+button.hub-badge{border:none;cursor:pointer;font-family:inherit;transition:transform .12s,box-shadow .12s,outline-color .12s}
+button.hub-badge:hover{transform:translateY(-1px);box-shadow:0 1px 4px rgba(0,0,0,.14)}
+button.hub-badge.active{outline:2px solid currentColor;outline-offset:1px}
 .hub-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.68em;font-weight:600;line-height:1.6;white-space:nowrap}
 .badge-price{background:rgba(230,126,34,.16);color:var(--accent)}
 .badge-time{background:rgba(39,174,96,.16);color:var(--success)}
@@ -1625,10 +1628,47 @@ function stratHasTimeFilter(st) {
   return !!(st.depStart || st.depEnd || st.arrStart || st.arrEnd);
 }
 
+var _hubBest = {};   // hubId -> { price/duration/arrive: { pair:[leg1索引, leg2索引], value } }
+
+// 点击「价格最低 / 时间最短 / 到达最快」：直接选中这组车次并滚动到汇总条
+function applyHubBest(hubId, kind) {
+  var info = _hubBest[hubId];
+  if (!info || !info[kind] || !info[kind].pair) return;
+  var pair = info[kind].pair;
+
+  var parts = hubId.split('_');
+  var s = _currentStrategies[parseInt(parts[1], 10)];
+  var r = s && s.transferData ? s.transferData[parseInt(parts[2], 10)] : null;
+  if (!r) return;
+
+  // 选中的组合若含无票车次，先切到"全部"模式，否则行是隐藏的看不到
+  var t1 = r.leg1[pair[0]], t2 = r.leg2[pair[1]];
+  var bothTicketed = t1 && t2 && t1.canBuy && hasTicket(t1) && t2.canBuy && hasTicket(t2);
+  if (!bothTicketed && !_hubShowAll[hubId]) {
+    toggleHubTickets(hubId);
+  }
+
+  _dualPanelState[hubId] = { leg1: pair[0], leg2: pair[1] };
+  refreshDualPanel(hubId);
+
+  ['price', 'duration', 'arrive'].forEach(function (k) {
+    var b = document.getElementById(hubId + '_badge_' + k);
+    if (b) b.classList.toggle('active', k === kind);
+  });
+
+  var sum = document.getElementById(hubId + '_summary');
+  if (sum && sum.scrollIntoView) {
+    try { sum.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { sum.scrollIntoView(); }
+  }
+}
+
 // 计算某个枢纽块里"能接上的最优组合"的三项指标（用于打「价格最低/时间最短/到达最快」标签）
 // 返回 { price: 总价最低, duration: 全程最短, arrive: 到达最早 }（绝对分钟）
 function hubBestMetrics(r, ticketedOnly) {
-  var best = { price: Infinity, duration: Infinity, arrive: Infinity };
+  var best = {
+    price: Infinity, duration: Infinity, arrive: Infinity,
+    pricePair: null, durationPair: null, arrivePair: null,
+  };
   if (!r || !r.leg1 || !r.leg2 || !r.compatibility) return best;
   for (var i = 0; i < r.leg1.length; i++) {
     var t1 = r.leg1[i];
@@ -1646,11 +1686,11 @@ function hubBestMetrics(r, ticketedOnly) {
       if (dep2Abs < arr1Abs + 20) continue;            // 兜底：确实接得上
       var arriveAbs = dep2Abs + durToMinutes(t2.duration);
       var total = arriveAbs - start1;                  // 全程耗时（含换乘等待）
-      if (total < best.duration) best.duration = total;
-      if (arriveAbs < best.arrive) best.arrive = arriveAbs;
+      if (total < best.duration) { best.duration = total; best.durationPair = [i, compat[k]]; }
+      if (arriveAbs < best.arrive) { best.arrive = arriveAbs; best.arrivePair = [i, compat[k]]; }
       // 票价缺失时 getMinAvailablePrice 可能返回 0，不能拿它比价格，否则会被误标"价格最低"
       var p2 = getMinAvailablePrice(t2);
-      if (p1 > 0 && p2 > 0 && p1 + p2 < best.price) best.price = p1 + p2;
+      if (p1 > 0 && p2 > 0 && p1 + p2 < best.price) { best.price = p1 + p2; best.pricePair = [i, compat[k]]; }
     }
   }
   return best;
@@ -1821,9 +1861,21 @@ function buildStrategyContent(idx, s) {
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
       var hubBadges = '';
       var hm = hubMetrics[ri] || {};
-      if (isFinite(bestP) && hm.price === bestP) hubBadges += '<span class="hub-badge badge-price">价格最低</span>';
-      if (isFinite(bestD) && hm.duration === bestD) hubBadges += '<span class="hub-badge badge-time">时间最短</span>';
-      if (isFinite(bestA) && hm.arrive === bestA) hubBadges += '<span class="hub-badge badge-arrive">到达最快</span>';
+      // 记下每个标签对应的车次组合，点击时直接选中
+      _hubBest[hubId] = {
+        price: { pair: hm.pricePair, value: hm.price },
+        duration: { pair: hm.durationPair, value: hm.duration },
+        arrive: { pair: hm.arrivePair, value: hm.arrive },
+      };
+      if (isFinite(bestP) && hm.price === bestP) {
+        hubBadges += '<button id="'+hubId+'_badge_price" class="hub-badge badge-price" onclick="applyHubBest(\''+hubId+'\',\'price\')" title="点击查看这组车次">价格最低</button>';
+      }
+      if (isFinite(bestD) && hm.duration === bestD) {
+        hubBadges += '<button id="'+hubId+'_badge_duration" class="hub-badge badge-time" onclick="applyHubBest(\''+hubId+'\',\'duration\')" title="点击查看这组车次">时间最短</button>';
+      }
+      if (isFinite(bestA) && hm.arrive === bestA) {
+        hubBadges += '<button id="'+hubId+'_badge_arrive" class="hub-badge badge-arrive" onclick="applyHubBest(\''+hubId+'\',\'arrive\')" title="点击查看这组车次">到达最快</button>';
+      }
       content += '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:6px">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘'+hubBadges+'</div>';
       content += '<div style="display:flex;align-items:center;gap:8px">';
       var r1WithTicket = r.leg1.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
