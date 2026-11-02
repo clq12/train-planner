@@ -355,7 +355,7 @@ body{
   .header h1{font-size:1.85em;letter-spacing:3px}
   .header p{font-size:.86em}
   .search-panel{padding:16px;border-radius:14px}
-  .search-row{gap:8px}
+  .search-row{gap:8px;align-items:stretch}
   .field label{margin-bottom:3px}
   .field input{padding:9px 12px}
   /* 交换按钮从竖排中“跳出来”，改成居中的小圆钮 */
@@ -368,15 +368,181 @@ body{
   .opt-hint{width:100%;margin-top:2px}
   #trainList:empty::after{padding:40px 12px;font-size:.84em}
 }
+
+/* ===== 可读性 & 宽屏利用率优化 ===== */
+/* 全站字号基准 16 → 18px，所有 em 尺寸等比放大，小字不再吃力 */
+html{font-size:18px}
+body{font-size:1rem;line-height:1.6}
+
+/* 主容器加宽：1600 宽屏两侧留白从 240px 收到 ~140px */
+.container{max-width:1320px;padding:22px 24px 48px}
+
+/* 直达车次列表：宽屏下改为两列，避免单列过长、两侧空 */
+@media (min-width:1180px){
+  .train-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+  .train-list:empty::after{grid-column:1 / -1}
+}
+/* 更宽的屏幕上再放宽一点 */
+@media (min-width:1560px){
+  .container{max-width:1460px}
+}
+@media (min-width:1800px){
+  .container{max-width:1620px}
+}
+
+/* 局部小字微调，避免放大后仍偏小 */
+.field label{font-size:.8em}
+.opt-hint{font-size:.86em}
+.opt-check{font-size:.92em}
+.station-item .sdesc{font-size:.78em}
+.header p.sub{font-size:.86em}
+
+/* 移动端不受基准放大影响过多，略收回 */
+@media (max-width:640px){
+  html{font-size:16px}
+  .container{padding:16px 14px 32px}
+}
+
+/* 搜索行比例：两个站名等宽，日期固定，交换按钮居中 */
+.search-row .field{flex:1 1 260px}
+.field[style*="max-width:140px"]{flex:0 0 180px;max-width:180px !important}
+.btn-swap{align-self:center;margin:0 2px}
+/* 时间筛选输入框不要被拉满整行 */
+.time-range input[type="time"]{max-width:120px}
+.sf-row .sf-group{flex:1 1 240px}
+/* 统计卡在宽屏下不要过高 */
+.stats-bar{align-items:stretch}
+.stat-card{padding:12px 14px}
+.stat-card .num{font-size:1.45em}
+.stat-card .label{font-size:.76em}
+
+/* 搜索字段等宽 + 筛选行两列对齐 */
+.search-row .field{flex:1 1 0;min-width:170px}
+.sf-row:has(.sf-group){display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media (max-width:760px){
+  .sf-row:has(.sf-group){grid-template-columns:1fr}
+}
+
+/* 移动端：日期字段必须与其他输入框同宽（放在最后，确保覆盖桌面规则） */
+@media (max-width:640px){
+  .search-row .field,
+  .search-row .field[style*="max-width"]{
+    flex:1 1 auto !important;
+    width:100% !important;
+    max-width:100% !important;
+  }
+}
+
+/* ===== 阅读设置：字号滑块 + 老年人模式 ===== */
+.header{position:relative}
+.a11y-bar{
+  position:absolute;right:0;top:4px;display:flex;align-items:center;gap:18px;
+  background:rgba(255,255,255,.9);border:1px solid #E3EFF3;border-radius:999px;
+  padding:7px 16px;box-shadow:var(--shadow-sm);
+}
+.a11y-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.a11y-switch input{position:absolute;opacity:0;width:0;height:0}
+.a11y-track{width:38px;height:22px;border-radius:999px;background:#D8E7EC;position:relative;transition:background .18s}
+.a11y-dot{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(15,46,54,.25);transition:transform .18s}
+.a11y-switch input:checked + .a11y-track{background:linear-gradient(135deg,#0D9488,#0284C7)}
+.a11y-switch input:checked + .a11y-track .a11y-dot{transform:translateX(16px)}
+.a11y-switch input:focus-visible + .a11y-track{outline:2px solid #0F766E;outline-offset:2px}
+.a11y-font{display:inline-flex;align-items:center;gap:9px}
+.a11y-txt{font-size:.78em;color:var(--text2);white-space:nowrap}
+.a11y-txt b{color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums}
+.a11y-bar input[type=range]{width:118px;accent-color:#0F766E;cursor:pointer}
+.a11y-bar input[type=range]:disabled{accent-color:#B4C6CC;opacity:.45;cursor:not-allowed}
+.a11y-bar .a11y-font:has(input:disabled){opacity:.5}
+
+/* 窄屏：仍然固定在右上角，只是缩小 + 给标题让出上边距 */
+@media (max-width:1024px){
+  .a11y-bar{top:0;right:0;gap:12px;padding:8px 12px;border-radius:14px}
+  .a11y-bar input[type=range]{width:120px}
+  .a11y-txt{font-size:.74em}
+  .header{padding-top:58px}
+}
+@media (max-width:430px){
+  /* 超窄屏隐藏品牌前缀，避免“走”字单独掉一行 */
+  .hdr-prefix{display:none}
+  .header p{font-size:.82em;line-height:1.5}
+  .header p.sub{font-size:.74em}
+  .a11y-bar{gap:9px;padding:6px 10px;border-radius:12px}
+  .a11y-bar input[type=range]{width:88px}
+  .a11y-txt{font-size:.7em}
+  .a11y-track{width:34px;height:20px}
+  .a11y-dot{width:14px;height:14px}
+  .a11y-switch input:checked + .a11y-track .a11y-dot{transform:translateX(14px)}
+  .header{padding-top:54px}
+}
+
+/* ===== 老年人模式：超大字号 + 宽松排版 + 高对比 ===== */
+body.elder{--text:#08171C;--text2:#2C4E58;--text3:#41666F;--border:#B6D2DA;--bg:#F7FCFD;line-height:1.95}
+body.elder .container{max-width:1180px;padding:26px 22px 64px}
+body.elder .header{padding:30px 0 20px}
+body.elder .header h1{font-size:2.35em;letter-spacing:6px}
+body.elder .header h1::after{width:60px;height:4px}
+body.elder .search-panel{padding:26px;border-radius:18px;margin-bottom:22px}
+body.elder .field label{font-size:.86em;color:#2C4E58}
+body.elder .field input{padding:13px 14px;font-size:1em;border-width:2px}
+body.elder .opt-check{font-size:1em}
+body.elder .btn-search{padding:14px 26px;font-size:1em}
+body.elder .field[style*="max-width"]{flex:0 0 250px;max-width:260px !important}
+body.elder .opt-check input{width:20px;height:20px}
+body.elder .a11y-switch{font-size:1em}
+/* 简化布局：单列、隐藏次要说明与高级筛选 */
+body.elder .train-list{display:block}
+body.elder .train-card{padding:20px 22px;margin-bottom:16px;border-width:1.5px;border-color:#C3DBE3}
+body.elder .leg-row{font-size:.95em;padding:9px 10px}
+body.elder .sort-filter-panel .sf-row:has(input[type="time"]),
+body.elder .opt-hint,
+body.elder .badge-live,
+body.elder .header p.sub,
+body.elder .filter-chips{display:none}
+body.elder .sort-filter-panel{padding:14px;border-width:1.5px}
+body.elder .sort-btn{padding:8px 14px;font-size:.95em}
+body.elder .tabs{padding:5px}
+body.elder .tab{padding:12px;font-size:.95em}
+body.elder .stat-card{padding:14px}
+body.elder .stat-card .num{font-size:1.6em}
+body.elder .stat-card .label{font-size:.85em}
+body.elder .strategy-section{padding:18px}
+body.elder .hub-badge{font-size:.85em;padding:3px 10px}
+body.elder .tip-content{font-size:.95em}
+
+/* 交换按钮：与输入框同构（占位 label），保证与输入框垂直居中对齐 */
+.field-swap{flex:0 0 auto !important;min-width:0 !important;width:auto !important;
+  display:flex;flex-direction:column;align-self:stretch}
+.field-swap label{visibility:hidden}
+.field-swap .btn-swap{flex:1 1 auto;align-self:stretch;display:inline-flex;align-items:center;justify-content:center;
+  padding:0 12px;margin:0;font-size:1em;line-height:1}
+@media (max-width:640px){
+  .field-swap{flex-direction:row;justify-content:center;width:100% !important;align-self:auto}
+  .field-swap label{display:none}
+  .field-swap .btn-swap{flex:0 0 auto;align-self:center;width:44px;height:44px;padding:0;margin:4px auto;
+    border-radius:50%;transform:rotate(90deg)}
+}
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
     <h1>票路</h1>
-    <p>车票路径规划器 · 直达没票，换条路走</p>
-    <p class="sub">12306 实时数据 · 六种购票策略一次算清</p>
+    <p><span class="hdr-prefix">车票路径规划器 · </span>直达没票，换条路走</p>
+    <p class="sub">12306 实时数据 · 六种购票策略</p>
     <span class="badge-live">● 接入12306实时数据</span>
+
+    <div class="a11y-bar" role="group" aria-label="阅读设置">
+      <label class="a11y-switch" title="开启后使用超大字号、更宽行距、更大间距，字号滑块不可用">
+        <input type="checkbox" id="elderMode">
+        <span class="a11y-track"><span class="a11y-dot"></span></span>
+        <span class="a11y-txt">老年人模式</span>
+      </label>
+      <div class="a11y-font">
+        <span class="a11y-txt">字号 <b id="fontVal">18</b></span>
+        <input type="range" id="fontRange" min="16" max="24" step="1" value="18" aria-label="正文字号（16 到 24）">
+      </div>
+    </div>
   </div>
 
   <div class="search-panel">
@@ -387,7 +553,10 @@ body{
         <div class="station-dropdown" id="fromDropdown"></div>
         <input type="hidden" id="fromCode">
       </div>
-      <button class="btn-swap" onclick="swapStations()" title="交换出发/到达">⇄</button>
+      <div class="field field-swap">
+        <label aria-hidden="true">&nbsp;</label>
+        <button class="btn-swap" onclick="swapStations()" title="交换出发/到达">⇄</button>
+      </div>
       <div class="field">
         <label>到达站</label>
         <input type="text" id="toInput" placeholder="输入站名或拼音" autocomplete="off">
@@ -2635,6 +2804,47 @@ async function init() {
   });
 }
 init();
+</script>
+<script>
+/* 阅读设置：字号滑块 + 老年人模式（localStorage 持久化） */
+(function () {
+  var root = document.documentElement;
+  var body = document.body;
+  var range = document.getElementById('fontRange');
+  var valEl = document.getElementById('fontVal');
+  var elder = document.getElementById('elderMode');
+  if (!range || !valEl || !elder) return;
+
+  var KF = 'piaolu_font_px', KE = 'piaolu_elder';
+  var MIN = 16, MAX = 24, DEF = 18, ELDER_PX = 26;
+
+  var cur = parseInt(localStorage.getItem(KF) || DEF, 10);
+  if (!(cur >= MIN && cur <= MAX)) cur = DEF;
+  var elderOn = localStorage.getItem(KE) === '1';
+
+  function paint() {
+    valEl.textContent = elderOn ? '超大' : cur;
+    range.value = cur;
+    range.disabled = elderOn;
+    elder.checked = elderOn;
+    body.classList.toggle('elder', elderOn);
+    root.style.fontSize = (elderOn ? ELDER_PX : cur) + 'px';
+  }
+
+  range.addEventListener('input', function () {
+    cur = parseInt(range.value, 10);
+    try { localStorage.setItem(KF, cur); } catch (e) {}
+    paint();
+  });
+
+  elder.addEventListener('change', function () {
+    elderOn = elder.checked;
+    try { localStorage.setItem(KE, elderOn ? '1' : '0'); } catch (e) {}
+    paint();
+  });
+
+  paint();
+})();
 </script>
 </body>
 </html>
