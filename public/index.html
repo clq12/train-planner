@@ -555,6 +555,11 @@ body.elder .container{max-width:980px !important}
 body:not(.two-col) .train-times{justify-content:space-between}
 body:not(.two-col) .time-arrow{flex:0 0 190px}
 body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
+
+/* 「无衔接」标记：提示这趟车接不上任何第二段，避免误以为"更便宜却没被选中" */
+.lr-noconn{font-size:.66em;color:#7A8F97;background:rgba(15,46,54,.05);
+  border:1px solid var(--border);border-radius:6px;padding:0 5px;margin-right:2px;white-space:nowrap}
+.leg-row:has(.lr-noconn){opacity:.62}
 </style>
 </head>
 <body>
@@ -2226,13 +2231,13 @@ function buildStrategyContent(idx, s) {
         arrive: { pair: hm.arrivePair, value: hm.arrive },
       };
       if (isFinite(bestP) && hm.price === bestP) {
-        hubBadges += '<button id="'+hubId+'_badge_price" class="hub-badge badge-price" onclick="applyHubBest(\''+hubId+'\',\'price\')" title="点击查看这组车次">价格最低</button>';
+        hubBadges += '<button id="'+hubId+'_badge_price" class="hub-badge badge-price" onclick="applyHubBest(\''+hubId+'\',\'price\')" title="点击选中这组车次（只统计两段都能衔接、且都有票的组合）">价格最低</button>';
       }
       if (isFinite(bestD) && hm.duration === bestD) {
-        hubBadges += '<button id="'+hubId+'_badge_duration" class="hub-badge badge-time" onclick="applyHubBest(\''+hubId+'\',\'duration\')" title="点击查看这组车次">时间最短</button>';
+        hubBadges += '<button id="'+hubId+'_badge_duration" class="hub-badge badge-time" onclick="applyHubBest(\''+hubId+'\',\'duration\')" title="点击选中这组车次（只统计两段都能衔接、且都有票的组合）">时间最短</button>';
       }
       if (isFinite(bestA) && hm.arrive === bestA) {
-        hubBadges += '<button id="'+hubId+'_badge_arrive" class="hub-badge badge-arrive" onclick="applyHubBest(\''+hubId+'\',\'arrive\')" title="点击查看这组车次">到达最快</button>';
+        hubBadges += '<button id="'+hubId+'_badge_arrive" class="hub-badge badge-arrive" onclick="applyHubBest(\''+hubId+'\',\'arrive\')" title="点击选中这组车次（只统计两段都能衔接、且都有票的组合）">到达最快</button>';
       }
       content += '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:6px">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘'+hubBadges+'</div>';
       content += '<div style="display:flex;align-items:center;gap:8px">';
@@ -2241,7 +2246,19 @@ function buildStrategyContent(idx, s) {
       content += '<span style="font-size:.75em;color:var(--text2)">'+r1WithTicket+'/'+r.leg1Count+'前程有票 · '+r2WithTicket+'/'+r.leg2Count+'后程有票</span>';
       content += '<button class="hub-ticket-toggle" id="'+hubId+'_toggle" onclick="toggleHubTickets(\''+hubId+'\')">有票</button>';
       content += '</div></div>';
-      content += buildDualLegPanel(r, { hubId: hubId, leg1Label: '第一段（出发）', leg2Label: '第二段（到达）' });
+      var _l1 = (r.leg1 && r.leg1[0]) || {};
+      var _l2 = (r.leg2 && r.leg2[0]) || {};
+      var _fromName = (document.getElementById('fromInput') || {}).value || '';
+      var _toName = (document.getElementById('toInput') || {}).value || '';
+      var _l1From = _l1.fromStation || _fromName;
+      var _l1To = _l1.toStation || r.hub;
+      var _l2From = _l2.fromStation || r.hub;
+      var _l2To = _l2.toStation || _toName;
+      content += buildDualLegPanel(r, {
+        hubId: hubId,
+        leg1Label: '第一段　' + escapeHTML(_l1From) + ' → ' + escapeHTML(_l1To),
+        leg2Label: '第二段　' + escapeHTML(_l2From) + ' → ' + escapeHTML(_l2To),
+      });
       content += '</div>';
     }
   }
@@ -2357,6 +2374,9 @@ function buildLegRow(t, hubId, leg, idx, options) {
 
   var row = '<div'+onClick+' class="'+cls+'" style="'+bg+'">';
   row += '<span class="lr-no">'+escapeHTML(t.trainNo)+'</span>';
+  if (options.noConnect) {
+    row += '<span class="lr-noconn" title="这趟车到达后接不上任何一趟第二段">无衔接</span>';
+  }
   if (leg === 'leg2' && t.dayOffset > 0) {
     var dayTip = t.dayOffset === 1 ? '次日发车' : ('第 ' + (t.dayOffset + 1) + ' 天发车');
     row += '<span class="lr-day" title="'+dayTip+'">+'+t.dayOffset+'</span>';
@@ -2386,7 +2406,8 @@ function buildDualLegPanel(hubData, options) {
   content += '<div style="font-size:.78em;color:var(--text2);margin-bottom:4px;font-weight:600">'+leg1Label+'</div>';
   content += '<div id="'+hubId+'_leg1" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--card)">';
   for (var i = 0; i < hubData.leg1.length; i++) {
-    content += buildLegRow(hubData.leg1[i], hubId, 'leg1', i);
+    var compatCount = (hubData.compatibility && hubData.compatibility[i] || []).length;
+    content += buildLegRow(hubData.leg1[i], hubId, 'leg1', i, { noConnect: compatCount === 0 });
   }
   content += '</div></div>';
   // 右列：第二段
