@@ -918,10 +918,10 @@ app.get('/api/transfer', async (req, res) => {
         // 就直接跳过，连第一段都不用查——省请求，也天然实现了
         // 「同市其他站有直达的才当中转站」。
         // 第二段：当天 + 第二天 + 第三天（支持跨日期换乘），三个日期并发查
-        // 第二段检索窗口：默认 6 天（出发日 ~ 第 5 天）。
+        // 第二段检索窗口：默认 3 天（出发日 ~ 第 2 天）。
         // 价格优先的用户愿意多等一天换更便宜的车，窗口太窄会漏掉。
         // 可用 &days= 覆盖（1~7），或在环境变量 LEG2_DAYS 设默认。
-        const leg2Days = clampInt(req.query.days, 1, 7, parseInt(process.env.LEG2_DAYS || '6', 10));
+        const leg2Days = clampInt(req.query.days, 1, 7, parseInt(process.env.LEG2_DAYS || '3', 10));
         const leg2Dates = [];
         for (let k = 0; k < leg2Days; k++) {
           let dd = date;
@@ -976,7 +976,7 @@ app.get('/api/transfer', async (req, res) => {
         if (!leg1 || leg1.length === 0) return null;
 
         // 可用 &gapH= 覆盖（小时，1~72）
-        const MAX_TRANSFER_GAP = clampInt(req.query.gapH, 1, 72, Math.round(parseInt(process.env.MAX_TRANSFER_GAP_MIN || '2880', 10) / 60)) * 60;
+        const MAX_TRANSFER_GAP = clampInt(req.query.gapH, 1, 72, Math.round(parseInt(process.env.MAX_TRANSFER_GAP_MIN || '2160', 10) / 60)) * 60;
 
         // 判断某趟第一段能否接上某趟第二段（换乘间隔 20 分钟 ~ 48 小时）
         function canConnect(t1, t2) {
