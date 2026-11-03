@@ -696,6 +696,19 @@ function parseTicketData(data) {
 }
 
 // ========== 中转换乘搜索（支持跨日期，流式进度） ==========
+// 把查询参数/环境变量转成受控整数：非法或越界则用默认值
+function clampInt(value, min, max, fallback) {
+  const n = parseInt(value, 10);
+  if (Number.isFinite(n)) return Math.max(min, Math.min(max, n));
+  const f = parseInt(fallback, 10);
+  return Number.isFinite(f) ? Math.max(min, Math.min(max, f)) : min;
+}
+
+// 管理页：/admin
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 app.get('/api/transfer', async (req, res) => {
   const { from, to, date, date2, transferStation } = req.query;
   // allHubs=1 表示「全部枢纽都查」，否则只查前 20 个常见枢纽
@@ -748,8 +761,10 @@ app.get('/api/transfer', async (req, res) => {
       const durH = parseInt(durParts[0]) || 0;
       const durM = parseInt(durParts[1]) || 0;
       const totalDurMinutes = durH * 60 + durM;
-      // 用总行程时间推算跨日天数
-      dayOffset = Math.floor(totalDurMinutes / 1440);
+      // 用「发车时刻 + 总行程时间」推算跨日天数。
+      // 只除 duration 会算少一天：K1256 23:50 发车、duration 33:14，
+      // 33:14/1440 向下取整是 1，但实际 23:50+33:14 已经是第 2 天 09:04。
+      dayOffset = Math.floor((depMinutes + totalDurMinutes) / 1440);
       // 如果到达时刻 < 出发时刻，说明时间显示上跨了午夜，确保至少 +1 天
       if (arrMinutes < depMinutes && dayOffset === 0) {
         dayOffset = 1;
@@ -903,8 +918,17 @@ app.get('/api/transfer', async (req, res) => {
         // 就直接跳过，连第一段都不用查——省请求，也天然实现了
         // 「同市其他站有直达的才当中转站」。
         // 第二段：当天 + 第二天 + 第三天（支持跨日期换乘），三个日期并发查
-        const dateNext2 = nextDay(dateNext);
-        const leg2Groups = await Promise.all([date, dateNext, dateNext2].map(async (d) => {
+        // 第二段检索窗口：默认 6 天（出发日 ~ 第 5 天）。
+        // 价格优先的用户愿意多等一天换更便宜的车，窗口太窄会漏掉。
+        // 可用 &days= 覆盖（1~7），或在环境变量 LEG2_DAYS 设默认。
+        const leg2Days = clampInt(req.query.days, 1, 7, parseInt(process.env.LEG2_DAYS || '6', 10));
+        const leg2Dates = [];
+        for (let k = 0; k < leg2Days; k++) {
+          let dd = date;
+          for (let x = 0; x < k; x++) dd = nextDay(dd);
+          leg2Dates.push(dd);
+        }
+        const leg2Groups = await Promise.all(leg2Dates.map(async (d) => {
           const cached2 = cacheGet(hub.code, to, d);
           if (cached2) return cached2.data.map(t => ({ ...t, _leg2Date: d }));
 
@@ -951,7 +975,10 @@ app.get('/api/transfer', async (req, res) => {
         }
         if (!leg1 || leg1.length === 0) return null;
 
-        // 判断某趟第一段能否接上某趟第二段（换乘间隔 20 分钟 ~ 12 小时）
+        // 可用 &gapH= 覆盖（小时，1~72）
+        const MAX_TRANSFER_GAP = clampInt(req.query.gapH, 1, 72, Math.round(parseInt(process.env.MAX_TRANSFER_GAP_MIN || '2880', 10) / 60)) * 60;
+
+        // 判断某趟第一段能否接上某趟第二段（换乘间隔 20 分钟 ~ 48 小时）
         function canConnect(t1, t2) {
           const arrDate = computeArrivalDate(t1.startDate, t1.startTime, t1.arriveTime, t1.duration);
           const arrMins = parseInt(t1.arriveTime.split(':')[0]) * 60 + parseInt(t1.arriveTime.split(':')[1]);
@@ -961,7 +988,8 @@ app.get('/api/transfer', async (req, res) => {
           if (dayDiff === 0) gap = depMins - arrMins;
           else if (dayDiff > 0) gap = dayDiff * 1440 + (depMins - arrMins);
           else return false;
-          return gap >= 20 && gap <= 720;
+          // 上限默认 48 小时：价格优先时愿意多等，等 1~2 天换更便宜的车是合理的
+          return gap >= 20 && gap <= MAX_TRANSFER_GAP;
         }
 
         // 同一趟车连着三天都可能出现（时刻完全一样，只是日期不同）。

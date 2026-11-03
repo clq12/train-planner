@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理设置 · 票路</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#F2F8FA;--card:#fff;--card2:#F7FCFD;--border:#D8E7EC;
+  --accent:#0F766E;--accent2:#0369A1;--text:#0F2E36;--text2:#54727D;--text3:#8CA8B2;
+  --danger:#EF4444;--shadow:0 1px 2px rgba(15,46,54,.04),0 8px 24px -10px rgba(15,46,54,.14);
+}
+body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;
+  background:radial-gradient(1200px 520px at 50% -220px,#E4F3F0 0%,rgba(228,243,240,0) 70%),linear-gradient(180deg,#F4FAFB,#EDF6F8);
+  color:var(--text);min-height:100vh;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto;padding:36px 20px 64px}
+.head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}
+h1{font-size:1.55em;letter-spacing:2px;background:linear-gradient(135deg,#0D9488,#0284C7);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.back{font-size:.85em;color:var(--accent);text-decoration:none;border-bottom:1px dashed rgba(15,118,110,.4);padding-bottom:1px}
+.back:hover{color:var(--accent2);border-color:var(--accent2)}
+.sub{color:var(--text2);font-size:.88em;margin-bottom:22px}
+
+.card{background:var(--card);border:1px solid #E3EFF3;border-radius:16px;padding:22px;box-shadow:var(--shadow);margin-bottom:16px}
+.row{display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px dashed var(--border)}
+.row:last-child{border-bottom:none;padding-bottom:0}
+.row:first-child{padding-top:0}
+.label{flex:1;min-width:0}
+.label b{display:block;font-size:.98em;font-weight:700}
+.label span{display:block;font-size:.8em;color:var(--text2);margin-top:3px}
+.ctrl{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+input[type=range]{width:160px;accent-color:#0F766E;cursor:pointer}
+.val{min-width:64px;text-align:right;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+.hint{font-size:.78em;color:var(--text3);margin-top:4px}
+
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+button{font-family:inherit;font-size:.9em;font-weight:600;padding:10px 20px;border-radius:10px;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text2);transition:all .16s}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{background:linear-gradient(135deg,#0D9488,#0284C7);color:#fff;border:none;box-shadow:0 6px 16px -6px rgba(13,148,136,.55)}
+button.primary:hover{transform:translateY(-1px);box-shadow:0 10px 22px -8px rgba(13,148,136,.6);color:#fff}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(12px);
+  background:#0F2E36;color:#fff;padding:10px 20px;border-radius:10px;font-size:.86em;
+  opacity:0;pointer-events:none;transition:all .24s;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.note{background:#FFF9EC;border:1px solid #F5E1B8;border-radius:12px;padding:14px 16px;font-size:.83em;color:#7A5A16}
+.note b{color:#8A6414}
+.preview{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;font-size:.85em;color:var(--text2);margin-top:12px}
+.preview code{background:#fff;border:1px solid var(--border);border-radius:6px;padding:1px 6px;color:var(--accent);font-size:.95em}
+@media (max-width:560px){
+  .row{flex-direction:column;gap:8px}
+  .ctrl{width:100%}
+  input[type=range]{flex:1;width:auto}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>管理设置</h1>
+    <a class="back" href="/">← 返回查询页</a>
+  </div>
+  <p class="sub">调整中转方案的检索范围。保存后立即生效，设置存在本浏览器里。</p>
+
+  <div class="card">
+    <div class="row">
+      <div class="label">
+        <b>第二段检索天数</b>
+        <span>中转时往后查几天的第二段车次。天数越多，越容易找到便宜的慢车，但查询更慢。</span>
+      </div>
+      <div class="ctrl">
+        <input type="range" id="days" min="2" max="7" step="1" value="6">
+        <span class="val" id="daysVal">6 天</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">
+        <b>换乘等待上限</b>
+        <span>两段之间最多允许等多久。放宽后可以"等到第二天再走"，换取更便宜的后程。</span>
+        <div class="hint">下限固定 20 分钟（少于 20 分钟赶不上）</div>
+      </div>
+      <div class="ctrl">
+        <input type="range" id="gapH" min="1" max="72" step="1" value="48">
+        <span class="val" id="gapHVal">48 时</span>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:18px">
+      <button class="primary" id="save">保存设置</button>
+      <button id="reset">恢复默认</button>
+    </div>
+
+    <div class="preview">
+      当前请求会带上：<code id="qs">—</code>
+    </div>
+  </div>
+
+  <div class="card note">
+    <b>关于生效范围：</b>本站部署在 Vercel（无状态），服务端读不到持久化的设置文件，所以这些设置保存在<b>你当前这台设备的浏览器</b>里，每次查询时随请求一起发送。<br>
+    换设备或换浏览器需要重新设置；如果想改全局默认值，可以在 Vercel 后台设置环境变量 <code>LEG2_DAYS</code>、<code>MAX_TRANSFER_GAP_MIN</code>。
+  </div>
+
+  <div class="card" style="font-size:.83em;color:var(--text2)">
+    <b style="color:var(--text)">建议组合</b>
+    <div style="margin-top:8px;line-height:2">
+      · <b>速度优先</b>：天数 3 天 · 等待 12 小时 —— 和旧版行为一致<br>
+      · <b>均衡</b>：天数 4 天 · 等待 24 小时<br>
+      · <b>价格优先</b>：天数 6 天 · 等待 48 小时 —— 愿意多等，换取更便宜的后程
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">已保存</div>
+
+<script>
+(function () {
+  var KEY = 'piaolu_admin';
+  var DEFAULTS = { days: 6, gapH: 48 };
+
+  var daysEl = document.getElementById('days');
+  var gapEl = document.getElementById('gapH');
+  var daysVal = document.getElementById('daysVal');
+  var gapVal = document.getElementById('gapHVal');
+  var qsEl = document.getElementById('qs');
+  var toast = document.getElementById('toast');
+
+  function load() {
+    var cfg = DEFAULTS;
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var o = JSON.parse(raw);
+        cfg = {
+          days: clamp(o.days, 2, 7, DEFAULTS.days),
+          gapH: clamp(o.gapH, 1, 72, DEFAULTS.gapH),
+        };
+      }
+    } catch (e) {}
+    daysEl.value = cfg.days;
+    gapEl.value = cfg.gapH;
+    render();
+  }
+
+  function clamp(v, min, max, dft) {
+    var n = parseInt(v, 10);
+    if (!isFinite(n)) return dft;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function render() {
+    daysVal.textContent = daysEl.value + ' 天';
+    gapVal.textContent = gapEl.value + ' 时';
+    qsEl.textContent = '&days=' + daysEl.value + '&gapH=' + gapEl.value;
+  }
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function () { toast.classList.remove('show'); }, 1600);
+  }
+
+  daysEl.addEventListener('input', render);
+  gapEl.addEventListener('input', render);
+
+  document.getElementById('save').addEventListener('click', function () {
+    var cfg = { days: parseInt(daysEl.value, 10), gapH: parseInt(gapEl.value, 10) };
+    try {
+      localStorage.setItem(KEY, JSON.stringify(cfg));
+      showToast('已保存，返回查询页即可生效');
+    } catch (e) {
+      showToast('保存失败：浏览器禁用了本地存储');
+    }
+  });
+
+  document.getElementById('reset').addEventListener('click', function () {
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    load();
+    showToast('已恢复默认');
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

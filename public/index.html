@@ -1550,7 +1550,7 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
   // 4. 中转换乘 - 不同车次换乘（流式进度）
   try {
     showProgress('正在搜索中转换乘方案...', 80);
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}`);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}${adminParam()}`);
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -1644,6 +1644,19 @@ function hubParam() {
 function cityParam() {
   var el = document.getElementById('useCityFrom');
   return (el && el.checked) ? '&cityFrom=1' : '';
+}
+
+// 管理页（/admin）保存的检索参数：第二段天数 / 换乘等待上限
+function adminParam() {
+  try {
+    var raw = localStorage.getItem('piaolu_admin');
+    if (!raw) return '';
+    var o = JSON.parse(raw) || {};
+    var q = [];
+    if (o.days) q.push('days=' + parseInt(o.days, 10));
+    if (o.gapH) q.push('gapH=' + parseInt(o.gapH, 10));
+    return q.length ? '&' + q.join('&') : '';
+  } catch (e) { return ''; }
 }
 
 // 是否计算买长乘短 / 买短乘长
@@ -2384,6 +2397,16 @@ function buildLegRow(t, hubId, leg, idx, options) {
   row += '<span class="lr-time">'+escapeHTML(t.startTime)+'</span>';
   row += '<span style="color:var(--text3)">→</span>';
   row += '<span class="lr-time">'+escapeHTML(t.arriveTime)+'</span>';
+  // 到达跨天标记：相对本段发车日，到达是第几天（K1256 23:50→09:04 实际 +2）
+  var _depMins = timeToMinutes(t.startTime);
+  var _durMins = durToMinutes(t.duration);
+  var _arrShift = _durMins > 0
+    ? Math.floor((_depMins + _durMins) / 1440)
+    : (timeToMinutes(t.arriveTime) < _depMins ? 1 : 0);
+  if (_arrShift > 0) {
+    var _arrDayTip = '第 ' + (_arrShift + 1) + ' 天到达（跨 ' + _arrShift + ' 天）';
+    row += '<span class="lr-day" title="'+_arrDayTip+'">+'+_arrShift+'</span>';
+  }
   row += '<span class="lr-seats">'+seats+'</span>';
   row += '<span class="lr-price price-tip" style="color:var(--accent);font-weight:600;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
   row += '</div>';
@@ -2936,5 +2959,8 @@ init();
   paint();
 })();
 </script>
+<div style="text-align:center;padding:28px 0 8px">
+  <a href="/admin" style="font-size:.78em;color:var(--text3);text-decoration:none;border-bottom:1px dashed var(--border)">管理设置</a>
+</div>
 </body>
 </html>
