@@ -16,6 +16,10 @@
       "dest": "server.js"
     },
     {
+      "src": "/admin/?$",
+      "dest": "/public/admin.html"
+    },
+    {
       "handle": "filesystem"
     },
     {
