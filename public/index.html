@@ -215,6 +215,9 @@ button.hub-badge.active{outline:2px solid currentColor;outline-offset:1px}
 .leg-row .lr-day{font-family:monospace;font-size:.72em;line-height:1;padding:2px 4px;border-radius:4px;background:rgba(13,148,136,.18);color:var(--accent);font-weight:600;white-space:nowrap}
 .leg-row .lr-seats{margin-left:auto;display:flex;flex-wrap:wrap;gap:3px}
 .leg-row .lr-price{min-width:45px;text-align:right}
+/* 每趟车的真实起终点：12306 会做同城扩展，站名不能只看枢纽名 */
+.leg-row .lr-sta{flex-basis:100%;font-size:.72em;color:var(--text2);line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.leg-row .lr-sta-diff{color:var(--warn);font-weight:600}
 .leg-row.no-ticket{display:none}
 .show-all .leg-row.no-ticket{display:flex;opacity:.5}
 .show-all .leg-row.no-ticket .lr-no::after{content:'无票';font-size:.65em;color:var(--error);margin-left:4px;font-weight:400}
@@ -1582,9 +1585,10 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
     if (transferResults.length) {
       strategies.push({ name:'🔄 中转换乘（有票）', type:'transfer', trains:[],
         desc:`找到 ${transferResults.length} 个中转站，可自由搭配前后程`,
-        tip: transferResults.map(r =>
-          `经${r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`
-        ).join('\n'),
+        tip: transferResults.map(function (r) {
+          var realStops = unionNames(stopNames(r.leg1, 'toStation'), stopNames(r.leg2, 'fromStation'));
+          return `经${realStops.length ? realStops.join(' / ') : r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`;
+        }).join('\n'),
         transferData: transferResults,
         priority:2.5 });
     }
@@ -2040,6 +2044,51 @@ function applyHubBest(hubId, kind) {
 
 // 计算某个枢纽块里"能接上的最优组合"的三项指标（用于打「价格最低/时间最短/到达最快」标签）
 // 返回 { price: 总价最低, duration: 全程最短, arrive: 到达最早 }（绝对分钟）
+// ========== 换乘真实站点 ==========
+// 12306 的 queryG 会做「同城扩展」：查「成都东」可能返回终到「成都龙泉驿」、
+// 或从「成都西」发车的车次；查「黄龙九寨」也可能返回终到「松潘」的车次。
+// 所以列标题、枢纽名都必须取每趟车返回的真实站名，不能用第一趟车代表整列。
+function stopNames(list, field) {
+  var seen = {}, out = [];
+  for (var i = 0; i < (list || []).length; i++) {
+    var n = list[i] && list[i][field];
+    if (n && !seen[n]) { seen[n] = true; out.push(n); }
+  }
+  return out;
+}
+function stopLabel(names, max) {
+  max = max || 3;
+  if (!names || !names.length) return '';
+  if (names.length <= max) return names.join(' / ');
+  return names.slice(0, max).join(' / ') + ' 等 ' + names.length + ' 站';
+}
+function unionNames(a, b) {
+  var out = [];
+  (a || []).concat(b || []).forEach(function (n) { if (n && out.indexOf(n) < 0) out.push(n); });
+  return out;
+}
+function crossStation(t1, t2) {
+  return !!(t1 && t2 && t1.toStation && t2.fromStation && t1.toStation !== t2.fromStation);
+}
+// 每块方案里「多数车次」停靠的站，作为该列的基准；与基准不同的车次高亮提示
+var _hubBaselines = {};
+function modeName(list, field) {
+  var cnt = {}, best = '', bestN = 0;
+  (list || []).forEach(function (t) {
+    var n = t && t[field];
+    if (!n) return;
+    cnt[n] = (cnt[n] || 0) + 1;
+    if (cnt[n] > bestN) { bestN = cnt[n]; best = n; }
+  });
+  return best;
+}
+function hubBaselines(hubId, hubData) {
+  _hubBaselines[hubId] = {
+    arr: modeName(hubData.leg1, 'toStation'),
+    dep: modeName(hubData.leg2, 'fromStation'),
+  };
+}
+
 function hubBestMetrics(r, ticketedOnly) {
   var best = {
     price: Infinity, duration: Infinity, arrive: Infinity,
@@ -2252,21 +2301,30 @@ function buildStrategyContent(idx, s) {
       if (isFinite(bestA) && hm.arrive === bestA) {
         hubBadges += '<button id="'+hubId+'_badge_arrive" class="hub-badge badge-arrive" onclick="applyHubBest(\''+hubId+'\',\'arrive\')" title="点击选中这组车次（只统计两段都能衔接、且都有票的组合）">到达最快</button>';
       }
-      content += '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:6px">🔄 经 <span style="color:var(--accent)">'+escapeHTML(r.hub)+'</span> 换乘'+hubBadges+'</div>';
+      // 真实站点：第一段实际到达站 + 第二段实际出发站，才是这块方案真正的换乘站
+      var _arrStops = stopNames(r.leg1, 'toStation');
+      var _depStops = stopNames(r.leg2, 'fromStation');
+      var _startStops = stopNames(r.leg1, 'fromStation');
+      var _endStops = stopNames(r.leg2, 'toStation');
+      var _hubStops = unionNames(_arrStops, _depStops);
+      var _hubTitle = _hubStops.length ? stopLabel(_hubStops, 3) : r.hub;
+      var _hubMixed = _hubStops.length > 1;
+      content += '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:6px">🔄 经 <span style="color:var(--accent)">'+escapeHTML(_hubTitle)+'</span> 换乘'+hubBadges+'</div>';
       content += '<div style="display:flex;align-items:center;gap:8px">';
       var r1WithTicket = r.leg1.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
       var r2WithTicket = r.leg2.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
       content += '<span style="font-size:.75em;color:var(--text2)">'+r1WithTicket+'/'+r.leg1Count+'前程有票 · '+r2WithTicket+'/'+r.leg2Count+'后程有票</span>';
       content += '<button class="hub-ticket-toggle" id="'+hubId+'_toggle" onclick="toggleHubTickets(\''+hubId+'\')">有票</button>';
       content += '</div></div>';
-      var _l1 = (r.leg1 && r.leg1[0]) || {};
-      var _l2 = (r.leg2 && r.leg2[0]) || {};
+      if (_hubMixed) {
+        content += '<div style="font-size:.72em;color:var(--warn);margin:6px 0 2px">⚠️ 实际停靠站与查询枢纽「'+escapeHTML(r.hub)+'」不完全一致，部分车次需跨站换乘；请以下方每行列出的真实站名为准</div>';
+      }
       var _fromName = (document.getElementById('fromInput') || {}).value || '';
       var _toName = (document.getElementById('toInput') || {}).value || '';
-      var _l1From = _l1.fromStation || _fromName;
-      var _l1To = _l1.toStation || r.hub;
-      var _l2From = _l2.fromStation || r.hub;
-      var _l2To = _l2.toStation || _toName;
+      var _l1From = stopLabel(_startStops, 2) || _fromName;
+      var _l1To = stopLabel(_arrStops, 3) || r.hub;
+      var _l2From = stopLabel(_depStops, 3) || r.hub;
+      var _l2To = stopLabel(_endStops, 2) || _toName;
       content += buildDualLegPanel(r, {
         hubId: hubId,
         leg1Label: '第一段　' + escapeHTML(_l1From) + ' → ' + escapeHTML(_l1To),
@@ -2385,7 +2443,13 @@ function buildLegRow(t, hubId, leg, idx, options) {
   var cls = 'leg-row' + (hasAnyTicket ? '' : ' no-ticket');
   var onClick = ' onclick="selectDualPanel(\''+hubId+'\',\''+leg+'\','+idx+')"';
 
-  var row = '<div'+onClick+' class="'+cls+'" style="'+bg+'">';
+  // 逐行显示这趟车真正的起终点：不能让整列共用一个枢纽名
+  var _staText = (t.fromStation || '?') + ' → ' + (t.toStation || '?');
+  var _base = _hubBaselines[hubId] || {};
+  var _staDiff = leg === 'leg1'
+    ? !!(t.toStation && _base.arr && t.toStation !== _base.arr)
+    : !!(t.fromStation && _base.dep && t.fromStation !== _base.dep);
+  var row = '<div'+onClick+' class="'+cls+'" style="'+bg+'" title="'+escapeHTML(_staText)+'">';
   row += '<span class="lr-no">'+escapeHTML(t.trainNo)+'</span>';
   if (options.noConnect) {
     row += '<span class="lr-noconn" title="这趟车到达后接不上任何一趟第二段">无衔接</span>';
@@ -2409,6 +2473,7 @@ function buildLegRow(t, hubId, leg, idx, options) {
   }
   row += '<span class="lr-seats">'+seats+'</span>';
   row += '<span class="lr-price price-tip" style="color:var(--accent);font-weight:600;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
+  row += '<span class="lr-sta'+(_staDiff ? ' lr-sta-diff' : '')+'">'+(_staDiff ? '⚠ ' : '')+escapeHTML(_staText)+'</span>';
   row += '</div>';
   return row;
 }
@@ -2418,6 +2483,7 @@ function buildLegRow(t, hubId, leg, idx, options) {
 // options: { hubId, leg1Label, leg2Label, note }
 function buildDualLegPanel(hubData, options) {
   var hubId = options.hubId;
+  hubBaselines(hubId, hubData);
   var leg1Label = options.leg1Label || '第一段（出发）';
   var leg2Label = options.leg2Label || '第二段（到达）';
   var note = options.note || '';
@@ -2455,6 +2521,7 @@ function buildDualLegPanel(hubData, options) {
 // sortedOrigIndices: 排序后每个位置对应的原始索引（用于 compatibility 查询）
 function buildDualLegPanelSorted(hubData, sortedLeg1, sortedOrigIndices, options) {
   var hubId = options.hubId;
+  hubBaselines(hubId, hubData);
   var leg1Label = options.leg1Label || '第一段（出发）';
   var leg2Label = options.leg2Label || '第二段（到达）';
   var note = options.note || '';
@@ -2620,8 +2687,13 @@ function refreshDualPanel(hubId) {
       var gap = dep2Abs - arr1Abs;
       if (gap < 0) gap += 1440;
       var totalDur = leg1Dur + gap + leg2Dur;
-      // 换乘间隔显示
-      var gapColor = gap < 60 ? 'var(--error)' : 'var(--success)';
+      // 换乘间隔显示：跨站换乘要额外预留市内交通时间
+      var isCross = crossStation(t1, t2);
+      var minGap = isCross ? 90 : 20;
+      var gapColor = gap < minGap ? 'var(--error)' : (gap < 60 ? 'var(--warn)' : 'var(--success)');
+      var crossWarn = isCross
+        ? ' · <span style="color:var(--error);font-weight:600">⚠️ 需跨站换乘：'+escapeHTML(t1.toStation || '')+' → '+escapeHTML(t2.fromStation || '')+'（请自行预留市内交通时间）</span>'
+        : '';
 
       var t1Has = t1.canBuy && hasTicket(t1);
       var t2Has = t2.canBuy && hasTicket(t2);
@@ -2636,12 +2708,12 @@ function refreshDualPanel(hubId) {
 
       summaryEl.style.display = '';
       summaryEl.innerHTML = '<span style="font-weight:600">📊 选中方案</span>'
-        + ' · <span style="color:var(--accent);font-weight:600">'+escapeHTML(t1.trainNo)+'</span> '+escapeHTML(t1.startTime)+'→'+escapeHTML(t1.arriveTime)
-        + ' → <span style="color:var(--accent);font-weight:600">'+escapeHTML(t2.trainNo)+'</span> '+escapeHTML(t2.startTime)+'→'+escapeHTML(t2.arriveTime)
+        + ' · <span style="color:var(--accent);font-weight:600">'+escapeHTML(t1.trainNo)+'</span> <span style="color:var(--text2);font-size:.9em">'+escapeHTML(t1.fromStation || '')+'→'+escapeHTML(t1.toStation || '')+'</span> '+escapeHTML(t1.startTime)+'→'+escapeHTML(t1.arriveTime)
+        + ' → <span style="color:var(--accent);font-weight:600">'+escapeHTML(t2.trainNo)+'</span> <span style="color:var(--text2);font-size:.9em">'+escapeHTML(t2.fromStation || '')+'→'+escapeHTML(t2.toStation || '')+'</span> '+escapeHTML(t2.startTime)+'→'+escapeHTML(t2.arriveTime)
         + ' · 换乘 <span style="font-weight:600;color:'+gapColor+'">'+gap+'min</span>'
         + ' · 总耗时 <span style="font-weight:600;color:var(--accent3)">'+fmtMinutes(totalDur)+'</span>'
         + ' · 总花费 <span style="font-weight:600;color:var(--accent)">'+pricePfx+totalPrice+'</span>'
-        + warn;
+        + warn + crossWarn;
     } else if (t1) {
       // 只选了 leg1，提示选择 leg2
       summaryEl.style.display = '';

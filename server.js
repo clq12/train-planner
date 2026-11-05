@@ -806,6 +806,21 @@ app.get('/api/transfer', async (req, res) => {
       stationCache = stations;
     }
 
+    // 站名 → 城市码。12306 的 queryG 会做「同城扩展」：
+    // 查「成都东」可能返回终到「成都龙泉驿」或从「成都西」发车的车次，
+    // 查「黄龙九寨」也可能返回终到「松潘」的车次。
+    // 所以枢纽名不能代表每趟车的真实站点，换乘判断也得区分同站 / 同城跨站。
+    const cityCodeByName = {};
+    for (const st of Object.values(stations)) {
+      if (st && st.name && st.cityCode) cityCodeByName[st.name] = st.cityCode;
+    }
+    function stationRelation(a, b) {
+      if (!a || !b) return 'same';            // 旧缓存没有站名字段时按同站处理，避免整块方案消失
+      if (a === b) return 'same';
+      if (cityCodeByName[a] && cityCodeByName[a] === cityCodeByName[b]) return 'city';
+      return 'other';
+    }
+
     const majorHubs = [
       '济南西', '济南', '济南东', '徐州东', '徐州', '南京南', '南京',
       '郑州东', '郑州', '石家庄', '武汉', '长沙南', '长沙',
@@ -980,6 +995,12 @@ app.get('/api/transfer', async (req, res) => {
 
         // 判断某趟第一段能否接上某趟第二段（换乘间隔 20 分钟 ~ 48 小时）
         function canConnect(t1, t2) {
+          // 先看站点：不同城市的两段根本接不上（同站换乘不成立）；
+          // 同城不同站仍然算方案，但必须额外预留市内交通时间，前端也会标「需跨站换乘」。
+          const rel = stationRelation(t1.toStation, t2.fromStation);
+          if (rel === 'other') return false;
+          const minGap = rel === 'city' ? 90 : 20;   // 跨站换乘至少留 90 分钟
+
           const arrDate = computeArrivalDate(t1.startDate, t1.startTime, t1.arriveTime, t1.duration);
           const arrMins = parseInt(t1.arriveTime.split(':')[0]) * 60 + parseInt(t1.arriveTime.split(':')[1]);
           const depMins = parseInt(t2.startTime.split(':')[0]) * 60 + parseInt(t2.startTime.split(':')[1]);
@@ -988,8 +1009,8 @@ app.get('/api/transfer', async (req, res) => {
           if (dayDiff === 0) gap = depMins - arrMins;
           else if (dayDiff > 0) gap = dayDiff * 1440 + (depMins - arrMins);
           else return false;
-          // 上限默认 48 小时：价格优先时愿意多等，等 1~2 天换更便宜的车是合理的
-          return gap >= 20 && gap <= MAX_TRANSFER_GAP;
+          // 上限默认 36 小时：价格优先时愿意多等，等 1~2 天换更便宜的车是合理的
+          return gap >= minGap && gap <= MAX_TRANSFER_GAP;
         }
 
         // 同一趟车连着三天都可能出现（时刻完全一样，只是日期不同）。
