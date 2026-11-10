@@ -34,6 +34,14 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .opt-check{display:inline-flex;align-items:center;gap:6px;font-size:.85em;color:var(--text);cursor:pointer;user-select:none}
 .opt-check input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:0}
 .opt-hint{font-size:.78em;color:var(--text3)}
+/* 指定中转站：搜索面板下方单独一行 */
+.via-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.via-row .field{flex:0 1 260px;min-width:170px}
+.via-clear{padding:9px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;color:var(--text2);font-size:.8em;cursor:pointer;white-space:nowrap}
+.via-clear:hover{border-color:var(--accent);color:var(--accent)}
+.via-hint{font-size:.76em;color:var(--text3);flex:1 1 240px;line-height:1.5}
+.via-hint b{color:var(--accent);font-weight:600}
+.hub-badge.badge-specified{background:rgba(245,158,11,.12);color:var(--warn);border:1px solid rgba(245,158,11,.35)}
 .field{flex:1;min-width:140px;position:relative}
 .field label{display:block;font-size:.75em;color:var(--text2);margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
 .field input{width:100%;padding:10px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;color:var(--text);font-size:.92em;outline:none;transition:border-color .2s}
@@ -369,6 +377,8 @@ body{
   .btn-search{width:100%;padding:11px 20px}
   .search-options{gap:8px 14px;margin-top:12px}
   .opt-hint{width:100%;margin-top:2px}
+  .via-row .field{flex:1 1 100%}
+  .via-hint{width:100%;flex:1 1 100%}
   #trainList:empty::after{padding:40px 12px;font-size:.84em}
 }
 
@@ -634,6 +644,16 @@ body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
       </label>
       <span class="opt-hint" id="optHint">市内出发 = 同城所有车站的车次一起列出来</span>
     </div>
+    <div class="via-row">
+      <div class="field">
+        <label>🎯 指定中转站（可选）</label>
+        <input type="text" id="viaInput" placeholder="如：成都东，留空则自动找枢纽" autocomplete="off">
+        <div class="station-dropdown" id="viaDropdown"></div>
+        <input type="hidden" id="viaCode">
+      </div>
+      <button type="button" class="via-clear" onclick="clearViaStation()" title="清除指定中转站">✕ 清除</button>
+      <span class="via-hint" id="viaHint">留空时自动找常见枢纽；填了就以这个站为准，算出「出发地 → 该站 → 目的地」怎么走，并自动尝试同城其他车站。</span>
+    </div>
   </div>
 
   <div class="progress-bar" id="progressBar">
@@ -831,6 +851,7 @@ function selStation(inputId, dropdownId, codeId, code, name) {
   document.getElementById(inputId).value = name;
   document.getElementById(codeId).value = code;
   document.getElementById(dropdownId).classList.remove('show');
+  if (inputId === 'viaInput') updateViaUI();
 }
 
 function swapStations() {
@@ -901,6 +922,10 @@ function syncStationInputs() {
 // ========== 主搜索 ==========
 async function doSearch() {
   syncStationInputs();
+  if (!syncViaInput()) {
+    alert('指定中转站「' + viaName() + '」不是有效车站，请从下拉列表里选一个，或点「✕ 清除」留空');
+    return;
+  }
   const fromCode = document.getElementById('fromCode').value;
   const toCode = document.getElementById('toCode').value;
   const fromName = document.getElementById('fromInput').value;
@@ -1518,6 +1543,7 @@ async function showBuyLong(trainNo, trainCode) {
 // ========== 多策略方案 ==========
 async function computeStrategies(trains, fromCode, toCode, fromName, toName, date) {
   const strategies = [];
+  _transferNotice = '';
 
   // 1. 直达有票
   const directAvail = trains.filter(t => t.canBuy && hasTicket(t));
@@ -1552,8 +1578,8 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
 
   // 4. 中转换乘 - 不同车次换乘（流式进度）
   try {
-    showProgress('正在搜索中转换乘方案...', 80);
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}${adminParam()}`);
+    showProgress(viaParam() ? '正在查询指定中转站 ' + viaName() + '...' : '正在搜索中转换乘方案...', 80);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}${viaParam()}${adminParam()}`);
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -1576,6 +1602,8 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
           } else if (evt.type === 'result') {
             if (evt.status === 0 && evt.data && evt.data.length) {
               transferResults = evt.data;
+            } else if (evt.status !== 0 && evt.error) {
+              _transferNotice = evt.error;
             }
           }
         } catch (e) { /* ignore parse errors */ }
@@ -1583,14 +1611,22 @@ async function computeStrategies(trains, fromCode, toCode, fromName, toName, dat
     }
 
     if (transferResults.length) {
-      strategies.push({ name:'🔄 中转换乘（有票）', type:'transfer', trains:[],
-        desc:`找到 ${transferResults.length} 个中转站，可自由搭配前后程`,
+      var viaOn = !!viaParam();
+      if (viaOn && !transferResults.some(function (r) { return r.isSpecified; })) {
+        _transferNotice = '指定站本身没有可行的两段方案，下面列出的是它同城其他车站的备选，标题已标出真实换乘站。';
+      }
+      strategies.push({ name: viaOn ? '🔄 指定中转站换乘' : '🔄 中转换乘（有票）', type:'transfer', trains:[],
+        desc: viaOn
+          ? `按指定中转站「${viaName()}」查询：${transferResults.length} 个可行站点，两段车次可自由搭配`
+          : `找到 ${transferResults.length} 个中转站，可自由搭配前后程`,
         tip: transferResults.map(function (r) {
           var realStops = unionNames(stopNames(r.leg1, 'toStation'), stopNames(r.leg2, 'fromStation'));
-          return `经${realStops.length ? realStops.join(' / ') : r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`;
+          return (r.isSpecified ? '📌 指定站 ' : '') + `经${realStops.length ? realStops.join(' / ') : r.hub}换乘：${r.leg1Count}趟前程 + ${r.leg2Count}趟后程`;
         }).join('\n'),
         transferData: transferResults,
-        priority:2.5 });
+        priority: viaOn ? 1.5 : 2.5 });
+    } else if (viaParam() && !_transferNotice) {
+      _transferNotice = '指定中转站「' + viaName() + '」及其同城车站，当前没有查到可行的两段方案。可以换个站、到 /admin 放宽检索天数与等待上限，或点「✕ 清除」改回自动找枢纽。';
     }
   } catch (e) { console.error('Transfer failed:', e); }
 
@@ -1641,6 +1677,60 @@ function hubParam() {
   return (el && !el.checked) ? '&allHubs=1' : '';
 }
 
+// ========== 指定中转站 ==========
+// 把用户选中的车站代码发给后端：只算「出发地 → 该站 → 目的地」，
+// 后端还会自动补上该站同城的其他车站，避免指定站本身没车时算出一片空白。
+function viaParam() {
+  var el = document.getElementById('viaCode');
+  var code = el ? el.value.trim() : '';
+  return code ? '&transferStation=' + encodeURIComponent(code) : '';
+}
+function viaName() {
+  var el = document.getElementById('viaInput');
+  return el ? el.value.trim() : '';
+}
+function clearViaStation() {
+  var i = document.getElementById('viaInput');
+  var c = document.getElementById('viaCode');
+  var d = document.getElementById('viaDropdown');
+  if (i) i.value = '';
+  if (c) c.value = '';
+  if (d) d.classList.remove('show');
+  updateViaUI();
+  if (i) i.focus();
+}
+function updateViaUI() {
+  var codeEl = document.getElementById('viaCode');
+  if (!codeEl) return;
+  var has = !!codeEl.value.trim();
+  var hubChk = document.getElementById('useCommonHubs');
+  var hint = document.getElementById('viaHint');
+  if (hubChk) {
+    hubChk.disabled = has;
+    if (hubChk.parentElement) hubChk.parentElement.style.opacity = has ? '.45' : '';
+  }
+  if (hint) {
+    hint.innerHTML = has
+      ? '已指定 <b>' + escapeHTML(viaName()) + '</b>：只算经这个站的两段方案，并自动尝试同城其他车站；「常见枢纽」开关暂不生效。'
+      : '留空时自动找常见枢纽；填了就以这个站为准，算出「出发地 → 该站 → 目的地」怎么走，并自动尝试同城其他车站。';
+  }
+}
+// 回车直接查询时，用户可能只打了字没点下拉，按文本兜底匹配一次
+function syncViaInput() {
+  var i = document.getElementById('viaInput');
+  var c = document.getElementById('viaCode');
+  if (!i || !c) return true;
+  var text = i.value.trim();
+  if (!text) { c.value = ''; return true; }
+  if (c.value.trim()) {
+    var byCode = Object.values(allStations).find(function (s) { return s.code === c.value; });
+    if (byCode && byCode.name === text) return true;
+  }
+  var hit = pickStationByText(text);
+  if (hit) { i.value = hit.name; c.value = hit.code; updateViaUI(); return true; }
+  return false;
+}
+
 // 市内出发参数：勾选时把这个城市（地级市）所有车站一起查
 // 注意：只用于主列表查询。买长乘短/同车换乘/买短乘长 查的是"特定车次"，
 // 若也带上 cityFrom，每次余票查询会扇出到最多 8 个同城站，整体慢 8 倍且极易被限流。
@@ -1671,7 +1761,7 @@ function wantShortLong() {
 
 async function searchTransfer(fromCode, toCode, date) {
   try {
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}`);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}${viaParam()}`);
     const data = await resp.json();
     if (data.status === 0 && data.data) {
       return data.data;
@@ -1753,7 +1843,7 @@ function buildSameTrainSegRow(train, trainNo) {
 // 同车换乘查询（旧版，保留兼容）
 async function searchSegmented(fromCode, toCode, fromName, toName, date) {
   try {
-    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}`);
+    const resp = await fetch(`/api/transfer?from=${fromCode}&to=${toCode}&date=${date}${hubParam()}${viaParam()}`);
     const data = await resp.json();
     if (data.status === 0 && data.data) {
       // 直接使用 API 返回的 leg1/leg2/compatibility 结构
@@ -2214,6 +2304,7 @@ function stratControlsHTML(idx, type, st) {
 }
 
 var _currentStrategies = [];
+var _transferNotice = '';   // 指定中转站无方案 / 站名无效时，显示在策略区顶部
 
 function renderStrategyCard(idx) {
   var s = _currentStrategies[idx];
@@ -2285,6 +2376,7 @@ function buildStrategyContent(idx, s) {
       content += '<div style="margin-top:8px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
       content += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">';
       var hubBadges = '';
+      if (r.isSpecified) hubBadges += '<span class="hub-badge badge-specified" title="你在搜索区指定的中转站">📌 指定</span>';
       var hm = hubMetrics[ri] || {};
       // 记下每个标签对应的车次组合，点击时直接选中
       _hubBest[hubId] = {
@@ -2756,7 +2848,10 @@ function renderStrategies(strategies) {
   statsEl.innerHTML = '<div class="stat-card s-green"><div class="num">'+withTicket+'</div><div class="label">可行方案</div></div>'
     + '<div class="stat-card s-blue"><div class="num">'+strategies.length+'</div><div class="label">策略类型</div></div>';
 
-  el.innerHTML = strategies.map(function(s, idx){
+  var noticeHTML = _transferNotice
+    ? '<div class="route-card" style="border-left:3px solid var(--warn);margin-bottom:10px"><div style="padding:12px 16px;font-size:.85em;color:var(--warn);line-height:1.6">⚠️ ' + escapeHTML(_transferNotice) + '</div></div>'
+    : '';
+  el.innerHTML = noticeHTML + strategies.map(function(s, idx){
     var badgeClass = s.type==='direct'?'badge-direct':s.type==='waitlist'?'badge-transfer':s.type==='transfer'?'badge-direct':'badge-trick';
     var countText = s.trains&&s.trains.length ? s.trains.length+' 个车次'
       : s.transferData ? s.transferData.reduce(function(sum,r){return sum+r.leg1Count+r.leg2Count;},0)+' 趟车次'
@@ -2931,6 +3026,13 @@ async function init() {
 
   setupStationInput('fromInput','fromDropdown','fromCode');
   setupStationInput('toInput','toDropdown','toCode');
+  setupStationInput('viaInput','viaDropdown','viaCode');
+  var viaEl = document.getElementById('viaInput');
+  if (viaEl) {
+    viaEl.addEventListener('input', updateViaUI);
+    viaEl.addEventListener('change', updateViaUI);
+  }
+  updateViaUI();
   await loadStations();
   document.addEventListener('keydown', e => {
     if (e.key==='Enter' && !document.querySelector('.station-dropdown.show')) {

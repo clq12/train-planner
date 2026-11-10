@@ -835,13 +835,27 @@ app.get('/api/transfer', async (req, res) => {
     ];
 
     let transferCandidates = [];
+    let specifiedHub = null;   // 用户在搜索区「指定中转站」里选的那个站
     if (transferStation) {
-      const tsCode = stations[transferStation]?.code;
-      if (tsCode) {
-        transferCandidates = [{ name: transferStation, code: tsCode }];
+      // 前端下拉选站后传的是车站代码，也兼容直接传中文名 / 带「站」后缀 / 简写
+      const q = String(transferStation).trim();
+      const all = Object.values(stations);
+      const byCode = stations[q];
+      const key = q.replace(/站$/, '');
+      const byName = all.find(s => s.name === q) || all.find(s => s.name === key);
+      let loose = null;
+      if (!byCode && !byName && key.length >= 2) {
+        loose = all.filter(s => s.name.includes(key))
+          .sort((a, b) => a.name.length - b.name.length || a.index - b.index)[0];
+      }
+      const hit = byCode || byName || loose;
+      if (hit) {
+        specifiedHub = { name: hit.name, code: hit.code, isSpecified: true };
+        transferCandidates = [specifiedHub];
       } else {
-        const found = Object.values(stations).find(s => s.name === transferStation);
-        if (found) transferCandidates = [found];
+        sendEvent({ type: 'result', status: 1, error: `未找到指定中转站「${q}」，请从下拉列表中选择有效车站` });
+        res.end();
+        return;
       }
     } else {
       transferCandidates = majorHubs
@@ -898,7 +912,16 @@ app.get('/api/transfer', async (req, res) => {
     }
 
     let extraHubs = [];
-    if (!transferStation) {
+    if (transferStation) {
+      // 指定中转站：主查这个站，再把它同城的其他站作为备选。
+      // 例：指定「成都东」，但只有「成都西 / 成都南」有到目的地的车，也要能算出怎么到达。
+      if (specifiedHub) {
+        const seen = new Set([specifiedHub.code]);
+        citySiblings(specifiedHub.code).slice(0, 3).forEach(st => {
+          if (!seen.has(st.code)) { seen.add(st.code); extraHubs.push(st); }
+        });
+      }
+    } else {
       const seenCode = new Set(hubPool.map(h => h.code));
       const seenCity = new Set(hubPool.map(h => cityKey(h.name)));
       const perSide = { from: 0, to: 0 };
@@ -920,10 +943,18 @@ app.get('/api/transfer', async (req, res) => {
     }
 
     const results = [];
-    const maxTransferChecks = transferStation ? 1 : (allHubs ? hubPool.length : 20);
-    let hubsToCheck = hubPool.slice(0, maxTransferChecks);
-    if (extraHubs.length) hubsToCheck = [...extraHubs, ...hubsToCheck];
-    console.log(`🔀 Transfer hubs: ${hubsToCheck.length}/${hubPool.length}（${allHubs ? '全部枢纽' : '常见 20 个'}${extraHubs.length ? ` + 同城 ${extraHubs.map(h => h.name).join('/')}` : ''}）`);
+    let hubsToCheck;
+    if (transferStation) {
+      hubsToCheck = [...hubPool, ...extraHubs];   // 指定站排第一，同城站兜底
+    } else {
+      const maxTransferChecks = allHubs ? hubPool.length : 20;
+      hubsToCheck = hubPool.slice(0, maxTransferChecks);
+      if (extraHubs.length) hubsToCheck = [...extraHubs, ...hubsToCheck];
+    }
+    const scopeText = transferStation
+      ? `指定 ${specifiedHub.name}${extraHubs.length ? ' + 同城 ' + extraHubs.map(h => h.name).join('/') : ''}`
+      : (allHubs ? '全部枢纽' : '常见 20 个') + (extraHubs.length ? ` + 同城 ${extraHubs.map(h => h.name).join('/')}` : '');
+    console.log(`🔀 Transfer hubs: ${hubsToCheck.length}/${hubPool.length}（${scopeText}）`);
     const HUB_CONCURRENCY = Math.max(1, parseInt(process.env.HUB_CONCURRENCY || '5', 10));
 
     // 单个枢纽：第一段 + 第二段（当天/次日/第三天，三天并发），返回可换乘组合
@@ -1036,6 +1067,7 @@ app.get('/api/transfer', async (req, res) => {
         return {
           hub: hub.name,
           hubCode: hub.code,
+          isSpecified: !!hub.isSpecified,   // 用户在搜索区指定的那个站，前端打「📌 指定」标记
           leg1Count: leg1.length,
           leg2Count: leg2.length,
           leg1, leg2, compatibility,
@@ -1068,8 +1100,16 @@ app.get('/api/transfer', async (req, res) => {
       Array.from({ length: Math.min(HUB_CONCURRENCY, hubsToCheck.length) }, () => hubWorker())
     );
 
-    console.log(`✅ Transfer: ${results.length} hubs (${from}→${to}, ${date}~${dateNext})`);
-    sendEvent({ type: 'result', status: 0, data: results });
+    // 指定中转站时，同城备选只是「主站走不通」的兜底：
+    // 主站已经算出方案就只返回主站，避免几张几乎一样的卡片刷屏。
+    let finalResults = results;
+    if (transferStation && specifiedHub) {
+      const main = results.filter(r => r.isSpecified);
+      if (main.length) finalResults = main;
+    }
+
+    console.log(`✅ Transfer: ${finalResults.length} hubs (${from}→${to}, ${date}~${dateNext})`);
+    sendEvent({ type: 'result', status: 0, data: finalResults });
     res.end();
   } catch (err) {
     console.error('Transfer search failed:', err.message);
