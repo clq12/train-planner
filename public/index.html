@@ -2546,22 +2546,26 @@ function buildLegRow(t, hubId, leg, idx, options) {
   if (options.noConnect) {
     row += '<span class="lr-noconn" title="这趟车到达后接不上任何一趟第二段">无衔接</span>';
   }
-  if (leg === 'leg2' && t.dayOffset > 0) {
-    var dayTip = t.dayOffset === 1 ? '次日发车' : ('第 ' + (t.dayOffset + 1) + ' 天发车');
-    row += '<span class="lr-day" title="'+dayTip+'">+'+t.dayOffset+'</span>';
+  // 发车日偏移：第二段可能隔一两天才发车（相对整个行程的出发日）
+  var _depDay = (leg === 'leg2' ? (t.dayOffset || 0) : 0);
+  if (_depDay > 0) {
+    var dayTip = _depDay === 1 ? '次日发车' : ('第 ' + (_depDay + 1) + ' 天发车');
+    row += '<span class="lr-day" title="'+dayTip+'">+'+_depDay+'</span>';
   }
   row += '<span class="lr-time">'+escapeHTML(t.startTime)+'</span>';
   row += '<span style="color:var(--text3)">→</span>';
   row += '<span class="lr-time">'+escapeHTML(t.arriveTime)+'</span>';
-  // 到达跨天标记：相对本段发车日，到达是第几天（K1256 23:50→09:04 实际 +2）
+  // 到达日徽标是「相对整个行程出发日」的绝对天数 = 发车日偏移 + 本段车程跨夜天数。
+  // 例：+1 天 15:05 发车、隔夜 00:25 到，实际是第 3 天到，应显示 +2 而不是再写一个 +1。
   var _depMins = timeToMinutes(t.startTime);
   var _durMins = durToMinutes(t.duration);
   var _arrShift = _durMins > 0
     ? Math.floor((_depMins + _durMins) / 1440)
     : (timeToMinutes(t.arriveTime) < _depMins ? 1 : 0);
+  var _arrDay = _depDay + _arrShift;
   if (_arrShift > 0) {
-    var _arrDayTip = '第 ' + (_arrShift + 1) + ' 天到达（跨 ' + _arrShift + ' 天）';
-    row += '<span class="lr-day" title="'+_arrDayTip+'">+'+_arrShift+'</span>';
+    var _arrDayTip = '第 ' + (_arrDay + 1) + ' 天到达（相对出发日；本段车程跨 ' + _arrShift + ' 天）';
+    row += '<span class="lr-day" title="'+_arrDayTip+'">+'+_arrDay+'</span>';
   }
   row += '<span class="lr-seats">'+seats+'</span>';
   row += '<span class="lr-price price-tip" style="color:var(--accent);font-weight:600;cursor:help">'+pfx+price+'<span class="tip-content">'+tip+'</span></span>';
@@ -2779,6 +2783,15 @@ function refreshDualPanel(hubId) {
       var gap = dep2Abs - arr1Abs;
       if (gap < 0) gap += 1440;
       var totalDur = leg1Dur + gap + leg2Dur;
+      // 到达日（相对整个行程出发日）= 第二段发车日偏移 + 第二段车程跨夜天数
+      var _d2Dep = timeToMinutes(t2.startTime);
+      var _d2Shift = leg2Dur > 0
+        ? Math.floor((_d2Dep + leg2Dur) / 1440)
+        : (timeToMinutes(t2.arriveTime) < _d2Dep ? 1 : 0);
+      var _arrDayAbs = (t2.dayOffset || 0) + _d2Shift;
+      var arriveDayText = _arrDayAbs > 0
+        ? ' · <span title="相对出发日">第 ' + (_arrDayAbs + 1) + ' 天到</span>'
+        : '';
       // 换乘间隔显示：跨站换乘要额外预留市内交通时间
       var isCross = crossStation(t1, t2);
       var minGap = isCross ? 90 : 20;
@@ -2805,6 +2818,7 @@ function refreshDualPanel(hubId) {
         + ' · 换乘 <span style="font-weight:600;color:'+gapColor+'">'+gap+'min</span>'
         + ' · 总耗时 <span style="font-weight:600;color:var(--accent3)">'+fmtMinutes(totalDur)+'</span>'
         + ' · 总花费 <span style="font-weight:600;color:var(--accent)">'+pricePfx+totalPrice+'</span>'
+        + arriveDayText
         + warn + crossWarn;
     } else if (t1) {
       // 只选了 leg1，提示选择 leg2
