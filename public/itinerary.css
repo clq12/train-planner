@@ -42,6 +42,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 .gap.overlap { background:#fff0ee; }
 #candidate { border-color:#71baad; }
 #candidate-content { margin:12px 0; }
+.date-control { display:flex; align-items:stretch; gap:6px; margin-top:4px; }
+.date-control input { flex:1; width:0; margin-top:0; }
+.date-control button { flex:none; padding:6px 10px; font-size:.875rem; }
+.date-field { min-width:0; }
 .place-field { position:relative; min-width:0; }
 .place-options { position:absolute; z-index:10; top:100%; left:0; right:0; max-height:260px; overflow-y:auto; overscroll-behavior:contain; margin:4px 0 0; padding:4px; list-style:none; border:1px solid var(--line); border-radius:8px; background:var(--paper); box-shadow:0 8px 22px #0f2e3620; }
 .place-options [role=option] { min-height:44px; padding:10px 8px; border-radius:5px; font-size:.875rem; cursor:pointer; }

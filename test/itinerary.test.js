@@ -594,6 +594,22 @@ test('三种方式都按北京时间保存，跨日需显式改到达日期，�
   }
 });
 
+test('今天按钮按点击时的北京时间回到当天，不改时分和另一端日期、不保存日程', () => {
+  let now = Date.parse('2026-11-20T15:59:00Z');
+  class FixedDate extends Date { static now() { return now; } }
+  const page = pageFixture([], null, new Map(), { Date: FixedDate });
+  const form = fillManual(page);
+  now = Date.parse('2026-11-20T16:01:00Z');
+  page.get('departure-today').listeners.click();
+  assert.equal(form.inputs.departureDate.value, '2026-11-21');
+  assert.equal(form.inputs.arrivalDate.value, '2026-12-10');
+  assert.equal(form.inputs.departureTime.value, '08:00');
+  assert.equal(form.inputs.arrivalTime.value, '10:00');
+  page.get('arrival-today').listeners.click();
+  assert.equal(form.inputs.arrivalDate.value, '2026-11-21');
+  assert.equal(JSON.parse(page.storage.get(core.STORAGE_KEY)).legs.length, 0);
+});
+
 test('历史时差只用于换算实际时刻，卡片和编辑统一北京且不展示数字时差', () => {
   const page = pageFixture([flight]);
   const timeline = page.get('timeline');

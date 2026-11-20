@@ -247,6 +247,12 @@ function defaultEditorDates() {
   field('arrivalDate').value = today;
 }
 
+for (const name of ['departure', 'arrival']) {
+  byId(`${name}-today`).addEventListener('click', () => {
+    field(`${name}Date`).value = core.trainSearchDates(Date.now()).min;
+  });
+}
+
 function resetEditor() {
   editing = null;
   legForm.reset();

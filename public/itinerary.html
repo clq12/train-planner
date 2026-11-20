@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>出行日程 · 票路</title>
-  <link rel="stylesheet" href="/itinerary.css?v=20261120-beijing1">
-  <script defer src="/itinerary-core.js?v=20261120-beijing1"></script>
-  <script defer src="/place-suggestions.js?v=20261120-beijing1"></script>
-  <script defer src="/itinerary.js?v=20261120-beijing1"></script>
+  <link rel="stylesheet" href="/itinerary.css?v=20261120-today1">
+  <script defer src="/itinerary-core.js?v=20261120-today1"></script>
+  <script defer src="/place-suggestions.js?v=20261120-today1"></script>
+  <script defer src="/itinerary.js?v=20261120-today1"></script>
 </head>
 <body>
 <main>
@@ -57,9 +57,9 @@
             </div>
           </div>
           <div class="time-fields">
-            <label>出发日期<input type="date" name="departureDate" required></label>
+            <div class="date-field"><label for="departure-date">出发日期</label><div class="date-control"><input id="departure-date" type="date" name="departureDate" required><button id="departure-today" type="button" aria-label="出发日期设为今天">今天</button></div></div>
             <label>出发时间<input type="time" name="departureTime" required></label>
-            <label>到达日期<input type="date" name="arrivalDate" required></label>
+            <div class="date-field"><label for="arrival-date">到达日期</label><div class="date-control"><input id="arrival-date" type="date" name="arrivalDate" required><button id="arrival-today" type="button" aria-label="到达日期设为今天">今天</button></div></div>
             <label>到达时间<input type="time" name="arrivalTime" required></label>
           </div>
           <p class="note">所有时间统一使用北京时间。日期默认今天，具体时分请填写；跨日行程请调整到达日期。</p>
