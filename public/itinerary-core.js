@@ -43,7 +43,21 @@
     const departureMs = wallTime(departure) - readOffset(departureOffset) * MINUTE;
     const arrivalMs = wallTime(arrival) - readOffset(arrivalOffset) * MINUTE;
     if (arrivalMs <= departureMs) throw new Error('到达必须晚于出发，请核对日期和两端的 UTC 时差。');
-    return { kind, number, from, to, departure, arrival, departureOffset, arrivalOffset, departureMs, arrivalMs };
+    const leg = { kind, number, from, to, departure, arrival, departureOffset, arrivalOffset, departureMs, arrivalMs };
+    // Preserve bounded display details for saved search segments; never persist provider payloads or credentials.
+    if (kind === 'flight' && raw.flightDetails && typeof raw.flightDetails === 'object') {
+      const details = raw.flightDetails;
+      leg.flightDetails = {
+        source: details.source === 'Duffel' ? 'Duffel' : '',
+        airline: text(details.airline, 80), operatingAirline: text(details.operatingAirline, 80),
+        departureTerminal: text(details.departureTerminal, 20), arrivalTerminal: text(details.arrivalTerminal, 20),
+        stops: Array.isArray(details.stops) ? details.stops.slice(0, 4).map(stop => ({
+          code: text(stop?.code, 3), name: text(stop?.name, 80),
+          arrival: text(stop?.arrival, 16), departure: text(stop?.departure, 16),
+        })) : [],
+      };
+    }
+    return leg;
   }
 
   function trainToLeg(train, date) {

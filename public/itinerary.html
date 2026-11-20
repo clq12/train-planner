@@ -6,6 +6,7 @@
   <title>出行日程 · 票路</title>
   <link rel="stylesheet" href="/itinerary.css">
   <script defer src="/itinerary-core.js"></script>
+  <script defer src="/domestic-flight-service.js"></script>
   <script defer src="/itinerary.js"></script>
 </head>
 <body>
@@ -17,6 +18,29 @@
   </header>
   <div class="layout">
     <div class="stack">
+      <section class="panel" aria-labelledby="flight-search-title">
+        <h2 id="flight-search-title">中国内地单程航班</h2>
+        <p class="note">仅查询列表内机场，不含港澳台；经济舱，成人总价。国内航线覆盖取决于供应商账号权限，尚未经真实联测。</p>
+        <p id="flight-search-status" class="message" role="status" aria-live="polite">正在检查航班搜索配置；也可在右侧手动录入。</p>
+        <form id="flight-search-form">
+          <div class="fields">
+            <label>出发机场（IATA 码 · 机场名称）<select name="origin" id="flight-origin" required></select></label>
+            <label>到达机场（IATA 码 · 机场名称）<select name="destination" id="flight-destination" required></select></label>
+          </div>
+          <div class="fields">
+            <label>出发日期（北京时间）<input name="departureDate" id="flight-date" type="date" required></label>
+            <label>成人数（经济舱）<input name="adults" type="number" min="1" max="6" value="1" required></label>
+            <label>最多中转次数<select name="maxConnections"><option value="1">1 次中转</option><option value="0">直飞（可能含经停）</option></select></label>
+          </div>
+          <div class="actions">
+            <button id="flight-search-submit" class="primary" type="submit" disabled>查询航班报价</button>
+            <button id="flight-config-retry" type="button">重新检查配置</button>
+            <a href="#form-title">手动录入航班</a>
+          </div>
+        </form>
+        <p class="note flight-disclaimer">最多显示 10 个报价，报价和余位随时变化；测试模式结果不是真实可售航班。保存仅加入本浏览器日程，不等于订票。各段中转与火车、地面接驳均需自行核对。</p>
+        <div id="flight-results" class="flight-results" aria-live="polite"></div>
+      </section>
       <section id="candidate" class="panel" aria-labelledby="candidate-title" hidden>
         <h2 id="candidate-title">候选车次</h2>
         <div id="candidate-content"></div>

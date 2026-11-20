@@ -10,6 +10,9 @@ const fields = ['kind', 'number', 'from', 'to', 'departure', 'arrival', 'departu
 let state = { legs: [], settings: { ...core.defaults } };
 let editing = null;
 let candidate = null;
+let flightOffers = [];
+let flightConfigured = false;
+let flightSearching = false;
 
 function message(id, text) {
   byId(id).textContent = text;
@@ -59,6 +62,13 @@ function legCard(leg) {
     line.append(time);
     card.append(line);
   }
+  const details = leg.flightDetails;
+  if (details) {
+    if (details.airline) card.append(element('p', `航司：${details.airline}${details.operatingAirline && details.operatingAirline !== details.airline ? `；实际承运：${details.operatingAirline}` : ''}`));
+    if (details.departureTerminal || details.arrivalTerminal) card.append(element('p', `航站楼：${details.departureTerminal || '待确认'} → ${details.arrivalTerminal || '待确认'}`));
+    for (const stop of details.stops) card.append(element('p', `经停 ${stop.code} ${stop.name}：${stop.arrival.replace('T', ' ')} 到达 / ${stop.departure.replace('T', ' ')} 出发（UTC+08:00），是否下机请向航司核对。`, 'note'));
+    if (details.source === 'Duffel') card.append(element('p', '来自 Duffel 查询；保存不等于订票，请再次核对实际时刻。', 'note'));
+  }
   return card;
 }
 
@@ -66,12 +76,15 @@ function transferMessage(transfer) {
   const { previous, next, status, gapMinutes, minimumMinutes } = transfer;
   const prefix = `${label(previous)} → ${label(next)}：`;
   const samePlace = previous.to.trim().toLowerCase() === next.from.trim().toLowerCase();
-  const note = samePlace ? '' : '两段地点不同，请核对地面接驳。';
+  const arrivalTerminal = previous.flightDetails?.arrivalTerminal;
+  const departureTerminal = next.flightDetails?.departureTerminal;
+  const terminalChange = samePlace && arrivalTerminal && departureTerminal && arrivalTerminal !== departureTerminal;
+  const note = !samePlace ? '两段地点不同，请核对地面接驳。' : terminalChange ? `航站楼不同（${arrivalTerminal} → ${departureTerminal}），请核对航站楼接驳。` : '';
   if (status === 'overlap') return element('p', `${prefix}时间冲突，后一段提前 ${-gapMinutes} 分钟出发。${note}`, 'gap overlap');
   if (status === 'short') {
     return element('p', `${prefix}仅有 ${gapMinutes} 分钟，少于预留的 ${minimumMinutes} 分钟。${note}`, 'gap short');
   }
-  return element('p', `${prefix}间隔 ${gapMinutes} 分钟，达到预留时间。${note}`, samePlace ? 'gap' : 'gap short');
+  return element('p', `${prefix}间隔 ${gapMinutes} 分钟，达到预留时间。${note}`, samePlace && !terminalChange ? 'gap' : 'gap short');
 }
 
 function renderTimeline() {
@@ -125,6 +138,125 @@ function renderCandidate() {
 function render() {
   renderTimeline();
   renderCandidate();
+  renderFlightOffers();
+}
+
+function renderFlightOffers() {
+  const results = byId('flight-results');
+  if (!results) return;
+  results.replaceChildren(...flightOffers.map(offer => {
+    const card = element('article', '', 'flight-offer');
+    card.append(element('h3', `${offer.totalCurrency} ${offer.totalAmount} · ${offer.adults} 位成人经济舱总价`));
+    const mode = offer.liveMode === false ? '测试模式，非真实可售航班。' : offer.liveMode === true ? '供应商生产报价，尚未经本站真实联测。' : '供应商未声明模式，尚未经真实联测。';
+    card.append(element('p', `${mode} 报价可变，有效期至 ${offer.expiresAt.replace('T', ' ')}（UTC）；以重新查询及航司确认为准。`, 'note'));
+    const segments = offer.segments.map(raw => core.parseLeg(raw));
+    segments.forEach((leg, index) => {
+      if (index > 0) {
+        const previous = segments[index - 1];
+        const gap = (leg.departureMs - previous.arrivalMs) / 60000;
+        card.append(element('p', `中转 ${index}：${previous.to} → ${leg.from}，间隔 ${gap} 分钟。${previous.to !== leg.from ? '需要换机场，请补充实际地面接驳。' : '请核对航站楼、行李直挂及最晚登机时间。'}`, 'note flight-connection'));
+      }
+      card.append(legCard(leg));
+    });
+    const missing = segments.filter(leg => !isDuplicate(leg));
+    const comparisons = core.adjacentTransfers([...state.legs, ...missing], state.settings)
+      .filter(transfer => missing.includes(transfer.previous) || missing.includes(transfer.next));
+    if (comparisons.length) {
+      card.append(element('h4', '与现有日程及各航段的接驳比较'));
+      card.append(...comparisons.map(transferMessage));
+    }
+    card.append(element('p', '达到预留时间不代表接驳已证实可行；请核对所有机场、车站、航站楼和地面交通。', 'note'));
+    const expired = Date.parse(offer.expiresAt) <= Date.now();
+    const add = button(!missing.length ? '所有航段已在日程中' : expired ? '报价已过期，请重新查询' : `将 ${missing.length} 段航班加入日程`, () => {
+      if (Date.parse(offer.expiresAt) <= Date.now()) {
+        message('flight-search-status', '此报价已过期，请重新查询，或按已确认票面手动录入。');
+        renderFlightOffers();
+        return;
+      }
+      const legs = segments.filter(leg => !isDuplicate(leg));
+      if (legs.length) save({ ...state, legs: [...state.legs, ...legs] }, `已将 ${legs.length} 段航班加入日程；尚未订票。`, 'flight-search-status');
+    });
+    add.disabled = !missing.length || expired;
+    card.append(add);
+    return card;
+  }));
+}
+
+async function checkFlightConfiguration() {
+  flightConfigured = false;
+  byId('flight-search-submit').disabled = true;
+  message('flight-search-status', '正在检查航班搜索配置…');
+  try {
+    const response = await fetch('/api/domestic-flights/status', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || data.status !== 0 || typeof data.configured !== 'boolean') throw new Error();
+    flightConfigured = data.configured;
+    message('flight-search-status', flightConfigured ? '可查询国内单程报价；结果未经真实联测，覆盖取决于账号。' : '国内航班搜索未配置，请在下方手动录入航班。');
+  } catch {
+    message('flight-search-status', '无法检查航班服务，请稍后重试，或手动录入航班。');
+  }
+  byId('flight-search-submit').disabled = !flightConfigured || flightSearching;
+}
+
+function configureFlightSearch() {
+  const flights = window.DomesticFlights;
+  if (!flights) return;
+  const form = byId('flight-search-form');
+  for (const id of ['flight-origin', 'flight-destination']) {
+    const select = byId(id);
+    select.replaceChildren(...flights.airports.map(airport => {
+      const option = element('option', `${airport.code} · ${airport.name}`);
+      option.value = airport.code;
+      return option;
+    }));
+  }
+  byId('flight-origin').value = 'PEK';
+  byId('flight-destination').value = 'SHA';
+  Object.assign(byId('flight-date'), flights.searchDates(Date.now()));
+  byId('flight-config-retry').addEventListener('click', checkFlightConfiguration);
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!flightConfigured || flightSearching) return;
+    let query;
+    try {
+      const values = Object.fromEntries(new FormData(form));
+      query = flights.validateSearch({ ...values, adults: Number(values.adults), maxConnections: Number(values.maxConnections), limit: 10 }, Date.now());
+    } catch {
+      message('flight-search-status', '请选择列表内不同机场及有效日期，成人数需为1至6。');
+      return;
+    }
+    flightSearching = true;
+    byId('flight-search-submit').disabled = true;
+    byId('flight-config-retry').disabled = true;
+    flightOffers = [];
+    renderFlightOffers();
+    message('flight-search-status', '正在查询航班报价，请稍候…');
+    try {
+      const response = await fetch('/api/domestic-flights/search', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(query), cache: 'no-store',
+      });
+      const data = await response.json();
+      if (!response.ok || data.status !== 0) {
+        if (data.code === 'NOT_CONFIGURED') flightConfigured = false;
+        // Show only our fixed service messages, never arbitrary upstream error text.
+        message('flight-search-status', data.code === 'NOT_CONFIGURED' ? '国内航班搜索未配置，请手动录入航班。' : '暂时无法查询航班，请稍后重试或手动录入。');
+        return;
+      }
+      if (!Array.isArray(data.data?.offers)) throw new Error();
+      flightOffers = data.data.offers.slice(0, 10);
+      message('flight-search-status', flightOffers.length ? `找到 ${flightOffers.length} 个报价；${query.origin} → ${query.destination}，${query.departureDate}。报价及覆盖尚未经真实联测。` : '没有可显示的国内航班报价。空结果不代表该航线无航班，请另行核对或手动录入。');
+      renderFlightOffers();
+    } catch {
+      flightOffers = [];
+      renderFlightOffers();
+      message('flight-search-status', '航班查询暂不可用，请稍后重试或手动录入。');
+    } finally {
+      flightSearching = false;
+      byId('flight-search-submit').disabled = !flightConfigured;
+      byId('flight-config-retry').disabled = false;
+    }
+  });
+  return checkFlightConfiguration();
 }
 
 function configureInputs() {
@@ -225,6 +357,7 @@ readState();
 candidate = readCandidate();
 configureInputs();
 render();
+configureFlightSearch();
 
 window.addEventListener('storage', event => {
   if (event.key !== core.STORAGE_KEY && event.key !== null) return;
