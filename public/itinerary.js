@@ -6,7 +6,7 @@ const legForm = byId('leg-form');
 const settingsForm = byId('settings-form');
 const field = name => legForm.elements.namedItem(name);
 const types = { flight: '航班', train: '火车', ground: '地面接驳' };
-const fields = ['kind', 'number', 'from', 'to', 'departure', 'arrival', 'departureOffset', 'arrivalOffset'];
+const fields = ['kind', 'number', 'from', 'to'];
 let state = { legs: [], settings: { ...core.defaults } };
 let editing = null;
 let candidate = null;
@@ -143,13 +143,14 @@ function label(leg) {
 function legCard(leg) {
   const card = element('article', '', `leg ${leg.kind}`);
   card.append(element('h3', label(leg)), element('p', `${leg.from} → ${leg.to}`, 'route'));
-  for (const [caption, local, offset] of [
-    ['出发', leg.departure, leg.departureOffset],
-    ['到达', leg.arrival, leg.arrivalOffset],
+  for (const [caption, instant] of [
+    ['出发', leg.departureMs],
+    ['到达', leg.arrivalMs],
   ]) {
+    const local = core.beijingDateTime(instant);
     const line = element('p', `${caption} `);
-    const time = element('time', `${local.replace('T', ' ')}（UTC${offset}）`);
-    time.dateTime = `${local}${offset}`;
+    const time = element('time', local.replace('T', ' '));
+    time.dateTime = `${local}+08:00`;
     line.append(time);
     card.append(line);
   }
@@ -157,7 +158,7 @@ function legCard(leg) {
   if (details) {
     if (details.airline) card.append(element('p', `航司：${details.airline}${details.operatingAirline && details.operatingAirline !== details.airline ? `；实际承运：${details.operatingAirline}` : ''}`));
     if (details.departureTerminal || details.arrivalTerminal) card.append(element('p', `航站楼：${details.departureTerminal || '待确认'} → ${details.arrivalTerminal || '待确认'}`));
-    for (const stop of details.stops) card.append(element('p', `经停 ${stop.code} ${stop.name}：${stop.arrival.replace('T', ' ')} 到达 / ${stop.departure.replace('T', ' ')} 出发（UTC+08:00），是否下机请向航司核对。`, 'note'));
+    for (const stop of details.stops) card.append(element('p', `经停 ${stop.code} ${stop.name}：${stop.arrival.replace('T', ' ')} 到达 / ${stop.departure.replace('T', ' ')} 出发（北京时间），是否下机请向航司核对。`, 'note'));
     if (details.source === 'Duffel') card.append(element('p', '历史导入来源：Duffel；保存不等于订票，请再次核对实际时刻。', 'note'));
   }
   return card;
@@ -237,18 +238,20 @@ function configureInputs() {
   const number = field('number');
   number.required = kind !== 'ground';
   number.placeholder = { flight: '如 CA1831', train: '如 G123', ground: '如 机场大巴（选填）' }[kind];
-  const isTrain = kind === 'train';
   message('number-label', { flight: '航班号', train: '车次号', ground: '接驳方式（选填）' }[kind]);
-  for (const name of ['departureOffset', 'arrivalOffset']) {
-    field(name).readOnly = isTrain;
-    if (isTrain) field(name).value = '+08:00';
-  }
+}
+
+function defaultEditorDates() {
+  const today = core.trainSearchDates(Date.now()).min;
+  field('departureDate').value = today;
+  field('arrivalDate').value = today;
 }
 
 function resetEditor() {
   editing = null;
   legForm.reset();
   configureInputs();
+  defaultEditorDates();
   message('form-title', '添加一段行程');
   message('save-leg', '添加到日程');
   message('form-error', '');
@@ -258,6 +261,12 @@ function resetEditor() {
 function edit(leg) {
   editing = leg;
   for (const name of fields) field(name).value = leg[name];
+  const departure = core.beijingDateTime(leg.departureMs);
+  const arrival = core.beijingDateTime(leg.arrivalMs);
+  field('departureDate').value = departure.slice(0, 10);
+  field('departureTime').value = departure.slice(11);
+  field('arrivalDate').value = arrival.slice(0, 10);
+  field('arrivalTime').value = arrival.slice(11);
   configureInputs();
   message('form-title', `编辑${label(leg)}`);
   message('save-leg', '保存修改');
@@ -293,6 +302,10 @@ legForm.addEventListener('submit', event => {
   if (event.isComposing || placeEditors.some(editor => editor.isComposing())) return;
   try {
     const raw = Object.fromEntries(new FormData(legForm));
+    raw.departure = `${raw.departureDate}T${raw.departureTime}`;
+    raw.arrival = `${raw.arrivalDate}T${raw.arrivalTime}`;
+    raw.departureOffset = '+08:00';
+    raw.arrivalOffset = '+08:00';
     if (editing?.kind === 'flight' && raw.kind === 'flight') raw.flightDetails = editing.flightDetails;
     const leg = core.parseLeg(raw);
     if (isDuplicate(leg, editing)) throw new Error('这段行程已存在。');
@@ -332,6 +345,7 @@ function readState() {
 readState();
 candidate = readCandidate();
 configureInputs();
+defaultEditorDates();
 render();
 
 window.addEventListener('storage', event => {

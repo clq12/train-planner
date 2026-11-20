@@ -192,7 +192,7 @@ function pageFixture(legs, candidate = null, storage = new Map(), options = {}) 
     el.reset = () => { for (const [name, value] of Object.entries(values)) el.inputs[name].value = value; };
     return el;
   }
-  const legForm = form('leg-form', { kind: 'flight', number: '', from: '', to: '', departure: '', arrival: '', departureOffset: '+08:00', arrivalOffset: '+08:00' });
+  const legForm = form('leg-form', { kind: 'flight', number: '', from: '', to: '', departureDate: '', departureTime: '', arrivalDate: '', arrivalTime: '' });
   for (const name of ['from', 'to']) {
     legForm.inputs[name].id = `place-${name}`;
     ids.set(`place-${name}`, legForm.inputs[name]);
@@ -359,7 +359,7 @@ function typePlace(page, name, value) {
 function fillManual(page, kind = 'flight') {
   const form = page.get('leg-form');
   for (const [name, value] of Object.entries({ kind, number: 'TEST1', from: '自定义起点', to: 'HND 东京羽田',
-    departure: '2026-12-10T08:00', arrival: '2026-12-10T10:00', departureOffset: '+08:00', arrivalOffset: '+08:00' })) {
+    departureDate: '2026-12-10', departureTime: '08:00', arrivalDate: '2026-12-10', arrivalTime: '10:00' })) {
     form.inputs[name].value = value;
   }
   form.inputs.kind.listeners.change();
@@ -532,8 +532,81 @@ test('历史航段详情及设置刷新和编辑后保留，取消编辑清空�
   const saved = core.loadState({ getItem: key => page.storage.get(key) });
   assert.deepEqual(saved.legs[0].flightDetails, core.parseLeg(old).flightDetails);
   assert.equal(saved.legs[0].number, 'NEW123');
-  assert.equal(saved.legs[0].departureOffset, '+09:00');
-  assert.equal(saved.legs[0].arrivalOffset, '-08:00');
+  assert.equal(saved.legs[0].departureOffset, '+08:00');
+  assert.equal(saved.legs[0].arrivalOffset, '+08:00');
+  assert.equal(saved.legs[0].departureMs, core.parseLeg(old).departureMs);
+  assert.equal(saved.legs[0].arrivalMs, core.parseLeg(old).arrivalMs);
   assert.deepEqual(saved.settings, core.defaults);
+});
+
+test('北京时间格式化按实际时刻处理跨日、跨年和闰日', () => {
+  for (const [instant, expected] of [
+    ['2026-11-20T16:30:00Z', '2026-11-21T00:30'],
+    ['2026-12-31T16:05:00Z', '2027-01-01T00:05'],
+    ['2028-02-28T16:10:00Z', '2028-02-29T00:10'],
+  ]) assert.equal(core.beijingDateTime(Date.parse(instant)), expected);
+  const legacy = core.parseLeg(flight);
+  assert.equal(core.beijingDateTime(legacy.departureMs), '2026-11-20T23:20');
+  assert.equal(core.beijingDateTime(legacy.arrivalMs), '2026-11-21T09:35');
+});
+
+test('日期初始及取消编辑时默认北京今天，时分留空且切换类型不覆盖输入', () => {
+  let now = Date.parse('2026-11-20T16:30:00Z');
+  class FixedDate extends Date { static now() { return now; } }
+  const page = pageFixture([], null, new Map(), { Date: FixedDate });
+  const form = page.get('leg-form');
+  assert.equal(form.inputs.departureDate.value, '2026-11-21');
+  assert.equal(form.inputs.arrivalDate.value, '2026-11-21');
+  assert.equal(form.inputs.departureTime.value, '');
+  assert.equal(form.inputs.arrivalTime.value, '');
+  form.inputs.departureDate.value = '2026-12-01';
+  form.inputs.departureTime.value = '09:00';
+  form.inputs.kind.value = 'train';
+  form.inputs.kind.listeners.change();
+  assert.equal(form.inputs.departureDate.value, '2026-12-01');
+  assert.equal(form.inputs.departureTime.value, '09:00');
+  now = Date.parse('2026-11-21T16:30:00Z');
+  page.get('cancel-edit').listeners.click();
+  assert.equal(form.inputs.departureDate.value, '2026-11-22');
+  assert.equal(form.inputs.arrivalDate.value, '2026-11-22');
+  assert.equal(form.inputs.departureTime.value, '');
+});
+
+test('三种方式都按北京时间保存，跨日需显式改到达日期，成功后恢复今天', () => {
+  for (const kind of ['flight', 'train', 'ground']) {
+    class FixedDate extends Date { static now() { return Date.parse('2026-11-20T16:30:00Z'); } }
+    const page = pageFixture([], null, new Map(), { Date: FixedDate });
+    const form = fillManual(page, kind);
+    form.inputs.departureTime.value = '23:50';
+    form.inputs.arrivalTime.value = '00:10';
+    form.listeners.submit({ preventDefault() {} });
+    assert.equal(core.loadState({ getItem: key => page.storage.get(key) }).legs.length, 0);
+    assert.match(page.get('form-error').textContent, /晚于出发/);
+    form.inputs.arrivalDate.value = '2026-12-11';
+    form.listeners.submit({ preventDefault() {} });
+    const saved = core.loadState({ getItem: key => page.storage.get(key) }).legs[0];
+    assert.equal(saved.departureOffset, '+08:00');
+    assert.equal(saved.arrivalOffset, '+08:00');
+    assert.equal(saved.arrivalMs - saved.departureMs, 20 * 60000);
+    assert.equal(form.inputs.departureDate.value, '2026-11-21');
+    assert.equal(form.inputs.arrivalDate.value, '2026-11-21');
+    assert.equal(form.inputs.arrivalTime.value, '');
+  }
+});
+
+test('历史时差只用于换算实际时刻，卡片和编辑统一北京且不展示数字时差', () => {
+  const page = pageFixture([flight]);
+  const timeline = page.get('timeline');
+  assert.match(timeline.textContent, /2026-11-20 23:20/);
+  assert.match(timeline.textContent, /2026-11-21 09:35/);
+  assert.doesNotMatch(timeline.textContent, /UTC|\+08:00|\+8/);
+  timeline.children[0].children[0].children.at(-1).children[0].listeners.click();
+  const form = page.get('leg-form');
+  assert.equal(form.inputs.departureDate.value, '2026-11-20');
+  assert.equal(form.inputs.departureTime.value, '23:20');
+  assert.equal(form.inputs.arrivalDate.value, '2026-11-21');
+  assert.equal(form.inputs.arrivalTime.value, '09:35');
+  const html = fs.readFileSync(path.join(__dirname, '../public/itinerary.html'), 'utf8');
+  assert.doesNotMatch(html, /departureOffset|arrivalOffset|UTC|当地/);
 });
 

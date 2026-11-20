@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>出行日程 · 票路</title>
-  <link rel="stylesheet" href="/itinerary.css?v=20261120-places2">
-  <script defer src="/itinerary-core.js?v=20261120-places2"></script>
-  <script defer src="/place-suggestions.js?v=20261120-places2"></script>
-  <script defer src="/itinerary.js?v=20261120-places2"></script>
+  <link rel="stylesheet" href="/itinerary.css?v=20261120-beijing1">
+  <script defer src="/itinerary-core.js?v=20261120-beijing1"></script>
+  <script defer src="/place-suggestions.js?v=20261120-beijing1"></script>
+  <script defer src="/itinerary.js?v=20261120-beijing1"></script>
 </head>
 <body>
 <main>
@@ -29,7 +29,7 @@
       </section>
       <section class="panel" aria-labelledby="timeline-title">
         <h2 id="timeline-title" tabindex="-1">我的日程</h2>
-        <p class="note">按实际出发时间排序，每段显示当地时间。日程仅保存在此浏览器。</p>
+        <p class="note">按实际出发时间排序，所有时间均为北京时间。日程仅保存在此浏览器。</p>
         <p id="timeline-status" class="message" role="status"></p>
         <p id="empty" class="empty">还没有行程。可先录入航班，再从票路的直达结果里选车次比对日程。</p>
         <ol id="timeline" class="timeline"></ol>
@@ -38,7 +38,7 @@
     <div class="stack">
       <section class="panel" aria-labelledby="form-title">
         <h2 id="form-title" tabindex="-1">添加一段行程</h2>
-        <p class="note">航班按票面当地日期和时间手动录入。<a href="https://www.google.com/travel/flights?hl=zh-CN" target="_blank" rel="noopener noreferrer">查找航班 ↗</a></p>
+        <p class="note">航班、火车和地面接驳均按北京时间录入。<a href="https://www.google.com/travel/flights?hl=zh-CN" target="_blank" rel="noopener noreferrer">查找航班 ↗</a></p>
         <form id="leg-form">
           <div class="fields">
             <label>交通方式<select name="kind" id="leg-kind"><option value="flight">航班</option><option value="train">火车</option><option value="ground">地面接驳</option></select></label>
@@ -57,12 +57,12 @@
             </div>
           </div>
           <div class="time-fields">
-            <label>当地出发时间<input type="datetime-local" name="departure" required></label>
-            <label>出发 UTC 时差<input name="departureOffset" value="+08:00" maxlength="6" required></label>
-            <label>当地到达时间<input type="datetime-local" name="arrival" required></label>
-            <label>到达 UTC 时差<input name="arrivalOffset" value="+08:00" maxlength="6" required></label>
+            <label>出发日期<input type="date" name="departureDate" required></label>
+            <label>出发时间<input type="time" name="departureTime" required></label>
+            <label>到达日期<input type="date" name="arrivalDate" required></label>
+            <label>到达时间<input type="time" name="arrivalTime" required></label>
           </div>
-          <p class="note">国内火车使用北京时间。国际航班请按航班日期确认两地时差（含夏令时），跨夜请填写次日实际到达日期。</p>
+          <p class="note">所有时间统一使用北京时间。日期默认今天，具体时分请填写；跨日行程请调整到达日期。</p>
           <p id="form-error" class="message error" role="alert"></p>
           <div class="actions">
             <button type="submit" id="save-leg" class="primary">添加到日程</button>

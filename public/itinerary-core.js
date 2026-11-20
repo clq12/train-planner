@@ -16,7 +16,7 @@
 
   function wallTime(value) {
     if (typeof value !== 'string' || !/^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
-      throw new Error('请填写完整的当地日期和时间。');
+      throw new Error('请填写完整的日期和时间。');
     }
     const ms = Date.parse(`${value}:00Z`);
     if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 16) !== value) {
@@ -42,7 +42,7 @@
     const arrivalOffset = kind === 'train' ? CHINA_OFFSET : offset(raw.arrivalOffset);
     const departureMs = wallTime(departure) - readOffset(departureOffset) * MINUTE;
     const arrivalMs = wallTime(arrival) - readOffset(arrivalOffset) * MINUTE;
-    if (arrivalMs <= departureMs) throw new Error('到达必须晚于出发，请核对日期和两端的 UTC 时差。');
+    if (arrivalMs <= departureMs) throw new Error('到达必须晚于出发，请核对出发和到达日期。');
     const leg = { kind, number, from, to, departure, arrival, departureOffset, arrivalOffset, departureMs, arrivalMs };
     // Preserve bounded display details for saved search segments; never persist provider payloads or credentials.
     if (kind === 'flight' && raw.flightDetails && typeof raw.flightDetails === 'object') {
@@ -70,6 +70,13 @@
     return parseLeg({
       kind: 'train', number: train.trainNo, from: train.fromStation, to: train.toStation, departure, arrival,
     });
+  }
+
+  function beijingDateTime(instant) {
+    // Read shifted UTC fields so display never depends on the browser time zone.
+    const ms = Number(instant);
+    if (!Number.isFinite(ms)) throw new Error('日期或时间无效。');
+    return new Date(ms + 8 * 60 * MINUTE).toISOString().slice(0, 16);
   }
 
   function trainSearchDates(now = Date.now()) {
@@ -122,7 +129,7 @@
     return { legs, settings: normaliseSettings(saved?.settings) };
   }
 
-  const api = { STORAGE_KEY, defaults, parseLeg, trainToLeg, trainSearchDates, legKey, transferBetween, adjacentTransfers, normaliseSettings, loadState };
+  const api = { STORAGE_KEY, defaults, parseLeg, trainToLeg, beijingDateTime, trainSearchDates, legKey, transferBetween, adjacentTransfers, normaliseSettings, loadState };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else window.ItineraryCore = api;
 })();
