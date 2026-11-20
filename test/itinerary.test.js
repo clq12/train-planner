@@ -7,6 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
 const core = require('../public/itinerary-core.js');
+const domesticFlights = require('../public/domestic-flight-service.js');
 const flight = {
   kind: 'flight', number: 'XX123', from: 'HND', to: 'LAX',
   departure: '2026-11-21T00:20', departureOffset: '+09:00',
@@ -166,7 +167,7 @@ class PageElement {
   focus() {}
 }
 
-function pageFixture(legs, candidate = null, storage = new Map()) {
+function pageFixture(legs, candidate = null, storage = new Map(), options = {}) {
   if (legs) storage.set(core.STORAGE_KEY, JSON.stringify({ legs, settings: core.defaults }));
   const ids = new Map();
   const get = id => {
@@ -185,19 +186,25 @@ function pageFixture(legs, candidate = null, storage = new Map()) {
   }
   form('leg-form', { kind: 'flight', number: '', from: '', to: '', departure: '', arrival: '', departureOffset: '+08:00', arrivalOffset: '+08:00' });
   form('settings-form', { flight: '', afterFlight: '', train: '' });
+  if (options.flights) {
+    const search = form('flight-search-form', { origin: 'PEK', destination: 'SHA', departureDate: '2026-12-10', adults: 1, maxConnections: 1 });
+    for (const [name, id] of [['origin', 'flight-origin'], ['destination', 'flight-destination'], ['departureDate', 'flight-date']]) ids.set(id, search.inputs[name]);
+  }
   class FormDataStub {
     constructor(el) { this.entries = Object.entries(el.inputs).map(([name, input]) => [name, String(input.value)]); }
     [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
   }
   const context = vm.createContext({
-    window: { ItineraryCore: core, addEventListener() {} },
+    window: { ItineraryCore: core, DomesticFlights: options.flights, addEventListener() {} },
     document: { getElementById: get, createElement: () => new PageElement() },
+    fetch: options.fetch,
+    Date: options.Date || Date,
     location: { hash: candidate ? `#train=${encodeURIComponent(JSON.stringify(candidate))}` : '', pathname: '/itinerary.html', search: '' },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     history: { replaceState() {} }, URLSearchParams, FormData: FormDataStub,
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/itinerary.js'), 'utf8'), context);
-  return { get, storage };
+  return { get, storage, context };
 }
 
 test('候选及正式时间线保留长航班后的不足预留以及全部直接冲突', () => {
@@ -325,6 +332,119 @@ test('查询期间修改日期输入，结果候选仍使用发起查询时的�
   const candidate = JSON.parse(decodeURIComponent(encoded));
   assert.equal(candidate.departure, '2026-12-31T23:50');
   assert.equal(candidate.arrival, '2027-01-02T09:04');
+});
+
+test('静态机场下拉选项和北京时间机票日期不依赖外部脚本填充', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../public/itinerary.html'), 'utf8');
+  for (const [name, id] of [['origin', 'flight-origin'], ['destination', 'flight-destination']]) {
+    const select = html.match(new RegExp(`<select name="${name}" id="${id}"[^>]*>([^]*?)<\\/select>`));
+    assert.ok(select, `${name} select exists`);
+    const codes = [...select[1].matchAll(/<option value="([A-Z]{3})"/g)].map(match => match[1]);
+    assert.deepEqual(codes, domesticFlights.airports.map(airport => airport.code), name);
+  }
+  const fallback = html.match(/<script>\s*\/\/ Keep the domestic airport picker usable if a network filter blocks external scripts\.([\s\S]*?)<\/script>/);
+  assert.ok(fallback, 'inline fallback script exists');
+  class FixedDate extends Date {
+    constructor(...args) { super(...(args.length ? args : ['2026-11-20T16:30:00Z'])); }
+    static now() { return Date.parse('2026-11-20T16:30:00Z'); }
+  }
+  const field = {};
+  vm.runInNewContext(fallback[1], { Date: FixedDate, document: { getElementById: id => id === 'flight-date' ? field : null } });
+  assert.deepEqual([field.min, field.value, field.max], ['2026-11-21', '2026-11-22', '2027-10-17']);
+});
+
+function searchedOffer() {
+  const segment = (number, from, to, departure, arrival, terminal) => core.parseLeg({
+    kind: 'flight', number, from, to, departure, arrival, departureOffset: '+08:00', arrivalOffset: '+08:00',
+    flightDetails: { source: 'Duffel', airline: '测试航司', operatingAirline: '实际承运测试航司', arrivalTerminal: 'T1', departureTerminal: terminal, stops: [] },
+  });
+  return {
+    id: 'off_page', totalCurrency: 'CNY', totalAmount: '888.00', adults: 1, liveMode: false, expiresAt: '2099-01-01T00:00:00Z',
+    segments: [
+      segment('CA1001', 'PEK 北京首都机场', 'NKG 南京禄口机场', '2026-12-10T08:00', '2026-12-10T10:00', 'T3'),
+      segment('CA1002', 'NKG 南京禄口机场', 'SHA 上海虹桥机场', '2026-12-10T11:00', '2026-12-10T12:00', 'T2'),
+    ],
+  };
+}
+
+async function flightPage(offers, storage = new Map(), responseOverride = {}) {
+  const calls = [];
+  const page = pageFixture(null, null, storage, {
+    flights: domesticFlights,
+    fetch: async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith('/status')) return { ok: true, json: async () => ({ status: 0, configured: true }) };
+      return { ok: true, json: async () => ({ status: 0, data: { offers } }), ...responseOverride };
+    },
+  });
+  await new Promise(setImmediate);
+  page.get('flight-date').value = '2026-12-10';
+  return { ...page, calls };
+}
+function offerAddButton(page) {
+  return page.get('flight-results').children[0].children.find(child => child.type === 'button');
+}
+
+test('航班UI缺配置显示手动录入入口，不会发送搜索请求', async () => {
+  const calls = [];
+  const page = pageFixture([], null, new Map(), {
+    flights: domesticFlights,
+    fetch: async url => { calls.push(url); return { ok: true, json: async () => ({ status: 0, configured: false }) }; },
+  });
+  await new Promise(setImmediate);
+  assert.match(page.get('flight-search-status').textContent, /未配置.*手动录入/);
+  assert.equal(page.get('flight-search-submit').disabled, true);
+  await page.get('flight-search-form').listeners.submit({ preventDefault() {} });
+  assert.deepEqual(calls, ['/api/domestic-flights/status']);
+});
+
+test('搜索结果逐段显示报价、中转和接驳警告，一次保存全部航段并刷新恢复', async () => {
+  const railLeg = core.trainToLeg({ ...rail, startTime: '12:30', arriveTime: '13:30', duration: '01:00' }, '2026-12-10');
+  const storage = new Map([[core.STORAGE_KEY, JSON.stringify({ legs: [railLeg], settings: core.defaults })]]);
+  const page = await flightPage([searchedOffer()], storage);
+  await page.get('flight-search-form').listeners.submit({ preventDefault() {} });
+  const result = page.get('flight-results').textContent;
+  assert.match(result, /CNY 888.00.*1 位成人经济舱总价/);
+  assert.match(result, /测试模式，非真实可售航班/);
+  assert.match(result, /中转 1：NKG 南京禄口机场 → NKG 南京禄口机场，间隔 60 分钟/);
+  assert.match(result, /少于预留的 120 分钟/);
+  assert.match(result, /航站楼不同（T1 → T2）/);
+  assert.match(result, /少于预留的 90 分钟。两段地点不同/);
+  offerAddButton(page).listeners.click();
+  assert.equal(JSON.parse(storage.get(core.STORAGE_KEY)).legs.length, 3);
+  assert.equal(offerAddButton(page).disabled, true);
+  const restored = pageFixture(null, null, storage);
+  assert.match(restored.get('timeline').textContent, /CA1001/);
+  assert.match(restored.get('timeline').textContent, /CA1002/);
+});
+
+test('保存航班失败不改变日程，可重试且不重复已有段', async () => {
+  const raw = searchedOffer();
+  const storage = new Map([[core.STORAGE_KEY, JSON.stringify({ legs: [raw.segments[0]] })]]);
+  const page = await flightPage([raw], storage);
+  await page.get('flight-search-form').listeners.submit({ preventDefault() {} });
+  const originalSet = storage.set.bind(storage);
+  storage.set = () => { throw new Error('storage denied'); };
+  offerAddButton(page).listeners.click();
+  assert.equal(JSON.parse(storage.get(core.STORAGE_KEY)).legs.length, 1);
+  assert.equal(offerAddButton(page).disabled, false);
+  storage.set = originalSet;
+  offerAddButton(page).listeners.click();
+  assert.equal(JSON.parse(storage.get(core.STORAGE_KEY)).legs.length, 2);
+  assert.equal(offerAddButton(page).disabled, true);
+});
+
+test('过期报价、空结果及网络失败不会冒充可售或无航班', async () => {
+  const page = await flightPage([{ ...searchedOffer(), expiresAt: '2026-01-01T00:00:00Z' }]);
+  await page.get('flight-search-form').listeners.submit({ preventDefault() {} });
+  assert.equal(offerAddButton(page).disabled, true);
+  const empty = await flightPage([]);
+  await empty.get('flight-search-form').listeners.submit({ preventDefault() {} });
+  assert.match(empty.get('flight-search-status').textContent, /空结果不代表该航线无航班/);
+  const failed = await flightPage([], new Map(), { ok: false, json: async () => ({ status: 1, error: 'provider-secret-message' }) });
+  await failed.get('flight-search-form').listeners.submit({ preventDefault() {} });
+  assert.match(failed.get('flight-search-status').textContent, /手动录入/);
+  assert.ok(!failed.get('flight-search-status').textContent.includes('provider-secret-message'));
 });
 
 

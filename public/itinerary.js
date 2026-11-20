@@ -185,6 +185,10 @@ function renderFlightOffers() {
 async function checkFlightConfiguration() {
   flightConfigured = false;
   byId('flight-search-submit').disabled = true;
+  if (!window.DomesticFlights) {
+    message('flight-search-status', '机场列表仍可使用，但航班搜索组件未加载；请刷新页面或手动录入。');
+    return;
+  }
   message('flight-search-status', '正在检查航班搜索配置…');
   try {
     const response = await fetch('/api/domestic-flights/status', { cache: 'no-store' });
@@ -195,24 +199,47 @@ async function checkFlightConfiguration() {
   } catch {
     message('flight-search-status', '无法检查航班服务，请稍后重试，或手动录入航班。');
   }
-  byId('flight-search-submit').disabled = !flightConfigured || flightSearching;
+  byId('flight-search-submit').disabled = !flightConfigured || flightSearching || !window.DomesticFlights;
 }
 
 function configureFlightSearch() {
   const flights = window.DomesticFlights;
-  if (!flights) return;
   const form = byId('flight-search-form');
-  for (const id of ['flight-origin', 'flight-destination']) {
-    const select = byId(id);
-    select.replaceChildren(...flights.airports.map(airport => {
-      const option = element('option', `${airport.code} · ${airport.name}`);
-      option.value = airport.code;
-      return option;
-    }));
+  if (!form) return;
+
+  // Airport options and dates are also present in HTML as a network-failure fallback.
+  // Replace the inline list with the canonical list when the optional service loads.
+  if (flights && Array.isArray(flights.airports)) {
+    for (const id of ['flight-origin', 'flight-destination']) {
+      const select = byId(id);
+      const previous = select.value;
+      select.replaceChildren(...flights.airports.map(airport => {
+        const option = element('option', `${airport.code} · ${airport.name}`);
+        option.value = airport.code;
+        return option;
+      }));
+      select.value = flights.airports.some(airport => airport.code === previous) ? previous : id === 'flight-origin' ? 'PEK' : 'SHA';
+    }
   }
-  byId('flight-origin').value = 'PEK';
-  byId('flight-destination').value = 'SHA';
-  Object.assign(byId('flight-date'), flights.searchDates(Date.now()));
+
+  if (flights && typeof flights.searchDates === 'function') {
+    Object.assign(byId('flight-date'), flights.searchDates(Date.now()));
+  } else {
+    const today = core.trainSearchDates(Date.now());
+    const max = new Date(Date.parse(`${today.min}T00:00:00Z`) + 330 * 86400000).toISOString().slice(0, 10);
+    Object.assign(byId('flight-date'), { min: today.min, value: today.value, max });
+  }
+
+  if (!flights || typeof flights.validateSearch !== 'function') {
+    flightConfigured = false;
+    byId('flight-search-submit').disabled = true;
+    message('flight-search-status', '机场列表已就绪，但航班搜索组件未加载；请刷新页面或手动录入。');
+    const retry = byId('flight-config-retry');
+    retry.textContent = '刷新页面重试';
+    retry.addEventListener('click', () => window.location.reload());
+    return;
+  }
+
   byId('flight-config-retry').addEventListener('click', checkFlightConfiguration);
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -238,7 +265,6 @@ function configureFlightSearch() {
       const data = await response.json();
       if (!response.ok || data.status !== 0) {
         if (data.code === 'NOT_CONFIGURED') flightConfigured = false;
-        // Show only our fixed service messages, never arbitrary upstream error text.
         message('flight-search-status', data.code === 'NOT_CONFIGURED' ? '国内航班搜索未配置，请手动录入航班。' : '暂时无法查询航班，请稍后重试或手动录入。');
         return;
       }
@@ -252,7 +278,7 @@ function configureFlightSearch() {
       message('flight-search-status', '航班查询暂不可用，请稍后重试或手动录入。');
     } finally {
       flightSearching = false;
-      byId('flight-search-submit').disabled = !flightConfigured;
+      byId('flight-search-submit').disabled = !flightConfigured || !window.DomesticFlights;
       byId('flight-config-retry').disabled = false;
     }
   });
