@@ -42,14 +42,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible { 
 .gap.overlap { background:#fff0ee; }
 #candidate { border-color:#71baad; }
 #candidate-content { margin:12px 0; }
-.flight-results { display:grid; gap:14px; margin-top:14px; }
-.flight-offer { min-width:0; padding:12px; border:1px solid var(--line); border-radius:9px; }
-.flight-offer h3 { font-size:1rem; margin:0 0 8px; }
-.flight-offer h4 { font-size:.9rem; margin:12px 0 4px; }
-.flight-offer .leg { margin:10px 0; }
-.flight-offer > button { margin-top:10px; }
-.flight-connection { border-left:3px solid #64748b; padding-left:9px; }
-.flight-disclaimer { margin-top:12px; }
-#flight-search-form .actions { align-items:center; }
+.place-field { position:relative; min-width:0; }
+.place-options { position:absolute; z-index:10; top:100%; left:0; right:0; max-height:260px; overflow-y:auto; overscroll-behavior:contain; margin:4px 0 0; padding:4px; list-style:none; border:1px solid var(--line); border-radius:8px; background:var(--paper); box-shadow:0 8px 22px #0f2e3620; }
+.place-options [role=option] { min-height:44px; padding:10px 8px; border-radius:5px; font-size:.875rem; cursor:pointer; }
+.place-options [role=option]:hover,.place-options [aria-selected=true] { color:#fff; background:var(--accent); }
+[hidden] { display:none !important; }
 @media(max-width:760px) { .layout { grid-template-columns:1fr; } }
 @media(max-width:440px) { .fields,.time-fields { grid-template-columns:1fr; } }

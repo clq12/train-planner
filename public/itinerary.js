@@ -10,9 +10,100 @@ const fields = ['kind', 'number', 'from', 'to', 'departure', 'arrival', 'departu
 let state = { legs: [], settings: { ...core.defaults } };
 let editing = null;
 let candidate = null;
-let flightOffers = [];
-let flightConfigured = false;
-let flightSearching = false;
+const places = window.PlaceSuggestions;
+const placeEditors = [];
+let stationRequest;
+
+function loadStations() {
+  if (!stationRequest) {
+    stationRequest = fetch('/api/stations').then(response => {
+      if (!response.ok) throw new Error('stations unavailable');
+      return response.json();
+    }).then(result => result.status === 0 ? places.stationsFrom(result.data) : [])
+      .catch(() => []);
+  }
+  return stationRequest;
+}
+
+function setupPlaceInput(name) {
+  const input = field(name);
+  const list = byId(`place-${name}-options`);
+  let matches = [];
+  let active = -1;
+  let focused = false;
+  let composing = false;
+  let revision = 0;
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-controls', list.id);
+  input.setAttribute('aria-expanded', 'false');
+
+  function close() {
+    revision++;
+    matches = [];
+    active = -1;
+    list.hidden = true;
+    list.replaceChildren();
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  }
+  function highlight(index) {
+    active = index;
+    for (const [i, option] of [...list.children].entries()) option.setAttribute('aria-selected', String(i === active));
+    const option = list.children[active];
+    if (option) {
+      input.setAttribute('aria-activedescendant', option.id);
+      option.scrollIntoView({ block: 'nearest' });
+    } else input.removeAttribute('aria-activedescendant');
+  }
+  function choose(index) {
+    if (!matches[index]) return;
+    input.value = matches[index].value;
+    close();
+  }
+  async function suggest() {
+    close();
+    const current = revision;
+    const kind = field('kind').value;
+    if (!places || !focused || composing || kind === 'ground' || !input.value.trim()) return;
+    const catalogue = kind === 'flight' ? places.airports : await loadStations();
+    if (current !== revision || !focused || composing || kind !== field('kind').value) return;
+    matches = places.match(catalogue, input.value);
+    list.replaceChildren(...matches.map((place, index) => {
+      const option = element('li', place.label);
+      option.id = `place-${name}-option-${index}`;
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', 'false');
+      // Keep the input focused until click, including touch-generated clicks.
+      option.addEventListener('pointerdown', event => event.preventDefault());
+      option.addEventListener('click', () => choose(index));
+      return option;
+    }));
+    list.hidden = matches.length === 0;
+    input.setAttribute('aria-expanded', String(matches.length > 0));
+  }
+  input.addEventListener('focus', () => { focused = true; suggest(); });
+  input.addEventListener('blur', () => { focused = false; close(); });
+  input.addEventListener('input', suggest);
+  input.addEventListener('compositionstart', () => { composing = true; close(); });
+  input.addEventListener('compositionend', () => { composing = false; suggest(); });
+  input.addEventListener('keydown', event => {
+    if (composing || event.isComposing || event.keyCode === 229) return;
+    if (event.key === 'Escape' || event.key === 'Tab') { close(); return; }
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && matches.length) {
+      event.preventDefault();
+      highlight(active < 0 ? (event.key === 'ArrowDown' ? 0 : matches.length - 1)
+        : (active + (event.key === 'ArrowDown' ? 1 : -1) + matches.length) % matches.length);
+    } else if (event.key === 'Enter' && matches.length) {
+      // Opening the list never confirms its first item or submits the form.
+      event.preventDefault();
+      if (active >= 0) choose(active);
+    }
+  });
+  return { close, isComposing: () => composing };
+}
+
+for (const name of ['from', 'to']) placeEditors.push(setupPlaceInput(name));
 
 function message(id, text) {
   byId(id).textContent = text;
@@ -67,7 +158,7 @@ function legCard(leg) {
     if (details.airline) card.append(element('p', `航司：${details.airline}${details.operatingAirline && details.operatingAirline !== details.airline ? `；实际承运：${details.operatingAirline}` : ''}`));
     if (details.departureTerminal || details.arrivalTerminal) card.append(element('p', `航站楼：${details.departureTerminal || '待确认'} → ${details.arrivalTerminal || '待确认'}`));
     for (const stop of details.stops) card.append(element('p', `经停 ${stop.code} ${stop.name}：${stop.arrival.replace('T', ' ')} 到达 / ${stop.departure.replace('T', ' ')} 出发（UTC+08:00），是否下机请向航司核对。`, 'note'));
-    if (details.source === 'Duffel') card.append(element('p', '来自 Duffel 查询；保存不等于订票，请再次核对实际时刻。', 'note'));
+    if (details.source === 'Duffel') card.append(element('p', '历史导入来源：Duffel；保存不等于订票，请再次核对实际时刻。', 'note'));
   }
   return card;
 }
@@ -138,154 +229,10 @@ function renderCandidate() {
 function render() {
   renderTimeline();
   renderCandidate();
-  renderFlightOffers();
-}
-
-function renderFlightOffers() {
-  const results = byId('flight-results');
-  if (!results) return;
-  results.replaceChildren(...flightOffers.map(offer => {
-    const card = element('article', '', 'flight-offer');
-    card.append(element('h3', `${offer.totalCurrency} ${offer.totalAmount} · ${offer.adults} 位成人经济舱总价`));
-    const mode = offer.liveMode === false ? '测试模式，非真实可售航班。' : offer.liveMode === true ? '供应商生产报价，尚未经本站真实联测。' : '供应商未声明模式，尚未经真实联测。';
-    card.append(element('p', `${mode} 报价可变，有效期至 ${offer.expiresAt.replace('T', ' ')}（UTC）；以重新查询及航司确认为准。`, 'note'));
-    const segments = offer.segments.map(raw => core.parseLeg(raw));
-    segments.forEach((leg, index) => {
-      if (index > 0) {
-        const previous = segments[index - 1];
-        const gap = (leg.departureMs - previous.arrivalMs) / 60000;
-        card.append(element('p', `中转 ${index}：${previous.to} → ${leg.from}，间隔 ${gap} 分钟。${previous.to !== leg.from ? '需要换机场，请补充实际地面接驳。' : '请核对航站楼、行李直挂及最晚登机时间。'}`, 'note flight-connection'));
-      }
-      card.append(legCard(leg));
-    });
-    const missing = segments.filter(leg => !isDuplicate(leg));
-    const comparisons = core.adjacentTransfers([...state.legs, ...missing], state.settings)
-      .filter(transfer => missing.includes(transfer.previous) || missing.includes(transfer.next));
-    if (comparisons.length) {
-      card.append(element('h4', '与现有日程及各航段的接驳比较'));
-      card.append(...comparisons.map(transferMessage));
-    }
-    card.append(element('p', '达到预留时间不代表接驳已证实可行；请核对所有机场、车站、航站楼和地面交通。', 'note'));
-    const expired = Date.parse(offer.expiresAt) <= Date.now();
-    const add = button(!missing.length ? '所有航段已在日程中' : expired ? '报价已过期，请重新查询' : `将 ${missing.length} 段航班加入日程`, () => {
-      if (Date.parse(offer.expiresAt) <= Date.now()) {
-        message('flight-search-status', '此报价已过期，请重新查询，或按已确认票面手动录入。');
-        renderFlightOffers();
-        return;
-      }
-      const legs = segments.filter(leg => !isDuplicate(leg));
-      if (legs.length) save({ ...state, legs: [...state.legs, ...legs] }, `已将 ${legs.length} 段航班加入日程；尚未订票。`, 'flight-search-status');
-    });
-    add.disabled = !missing.length || expired;
-    card.append(add);
-    return card;
-  }));
-}
-
-async function checkFlightConfiguration() {
-  flightConfigured = false;
-  byId('flight-search-submit').disabled = true;
-  if (!window.DomesticFlights) {
-    message('flight-search-status', '机场列表仍可使用，但航班搜索组件未加载；请刷新页面或手动录入。');
-    return;
-  }
-  message('flight-search-status', '正在检查航班搜索配置…');
-  try {
-    const response = await fetch('/api/domestic-flights/status', { cache: 'no-store' });
-    const data = await response.json();
-    if (!response.ok || data.status !== 0 || typeof data.configured !== 'boolean') throw new Error();
-    flightConfigured = data.configured;
-    message('flight-search-status', flightConfigured ? '可查询国内单程报价；结果未经真实联测，覆盖取决于账号。' : '国内航班搜索未配置，请在下方手动录入航班。');
-  } catch {
-    message('flight-search-status', '无法检查航班服务，请稍后重试，或手动录入航班。');
-  }
-  byId('flight-search-submit').disabled = !flightConfigured || flightSearching || !window.DomesticFlights;
-}
-
-function configureFlightSearch() {
-  const flights = window.DomesticFlights;
-  const form = byId('flight-search-form');
-  if (!form) return;
-
-  // Airport options and dates are also present in HTML as a network-failure fallback.
-  // Replace the inline list with the canonical list when the optional service loads.
-  if (flights && Array.isArray(flights.airports)) {
-    for (const id of ['flight-origin', 'flight-destination']) {
-      const select = byId(id);
-      const previous = select.value;
-      select.replaceChildren(...flights.airports.map(airport => {
-        const option = element('option', `${airport.code} · ${airport.name}`);
-        option.value = airport.code;
-        return option;
-      }));
-      select.value = flights.airports.some(airport => airport.code === previous) ? previous : id === 'flight-origin' ? 'PEK' : 'SHA';
-    }
-  }
-
-  if (flights && typeof flights.searchDates === 'function') {
-    Object.assign(byId('flight-date'), flights.searchDates(Date.now()));
-  } else {
-    const today = core.trainSearchDates(Date.now());
-    const max = new Date(Date.parse(`${today.min}T00:00:00Z`) + 330 * 86400000).toISOString().slice(0, 10);
-    Object.assign(byId('flight-date'), { min: today.min, value: today.value, max });
-  }
-
-  if (!flights || typeof flights.validateSearch !== 'function') {
-    flightConfigured = false;
-    byId('flight-search-submit').disabled = true;
-    message('flight-search-status', '机场列表已就绪，但航班搜索组件未加载；请刷新页面或手动录入。');
-    const retry = byId('flight-config-retry');
-    retry.textContent = '刷新页面重试';
-    retry.addEventListener('click', () => window.location.reload());
-    return;
-  }
-
-  byId('flight-config-retry').addEventListener('click', checkFlightConfiguration);
-  form.addEventListener('submit', async event => {
-    event.preventDefault();
-    if (!flightConfigured || flightSearching) return;
-    let query;
-    try {
-      const values = Object.fromEntries(new FormData(form));
-      query = flights.validateSearch({ ...values, adults: Number(values.adults), maxConnections: Number(values.maxConnections), limit: 10 }, Date.now());
-    } catch {
-      message('flight-search-status', '请选择列表内不同机场及有效日期，成人数需为1至6。');
-      return;
-    }
-    flightSearching = true;
-    byId('flight-search-submit').disabled = true;
-    byId('flight-config-retry').disabled = true;
-    flightOffers = [];
-    renderFlightOffers();
-    message('flight-search-status', '正在查询航班报价，请稍候…');
-    try {
-      const response = await fetch('/api/domestic-flights/search', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(query), cache: 'no-store',
-      });
-      const data = await response.json();
-      if (!response.ok || data.status !== 0) {
-        if (data.code === 'NOT_CONFIGURED') flightConfigured = false;
-        message('flight-search-status', data.code === 'NOT_CONFIGURED' ? '国内航班搜索未配置，请手动录入航班。' : '暂时无法查询航班，请稍后重试或手动录入。');
-        return;
-      }
-      if (!Array.isArray(data.data?.offers)) throw new Error();
-      flightOffers = data.data.offers.slice(0, 10);
-      message('flight-search-status', flightOffers.length ? `找到 ${flightOffers.length} 个报价；${query.origin} → ${query.destination}，${query.departureDate}。报价及覆盖尚未经真实联测。` : '没有可显示的国内航班报价。空结果不代表该航线无航班，请另行核对或手动录入。');
-      renderFlightOffers();
-    } catch {
-      flightOffers = [];
-      renderFlightOffers();
-      message('flight-search-status', '航班查询暂不可用，请稍后重试或手动录入。');
-    } finally {
-      flightSearching = false;
-      byId('flight-search-submit').disabled = !flightConfigured || !window.DomesticFlights;
-      byId('flight-config-retry').disabled = false;
-    }
-  });
-  return checkFlightConfiguration();
 }
 
 function configureInputs() {
+  for (const editor of placeEditors) editor.close();
   const kind = field('kind').value;
   const number = field('number');
   number.required = kind !== 'ground';
@@ -343,8 +290,11 @@ function dismissCandidate() {
 
 legForm.addEventListener('submit', event => {
   event.preventDefault();
+  if (event.isComposing || placeEditors.some(editor => editor.isComposing())) return;
   try {
-    const leg = core.parseLeg(Object.fromEntries(new FormData(legForm)));
+    const raw = Object.fromEntries(new FormData(legForm));
+    if (editing?.kind === 'flight' && raw.kind === 'flight') raw.flightDetails = editing.flightDetails;
+    const leg = core.parseLeg(raw);
     if (isDuplicate(leg, editing)) throw new Error('这段行程已存在。');
     const legs = editing ? state.legs.map(item => item === editing ? leg : item) : [...state.legs, leg];
     if (save({ ...state, legs }, `已保存${label(leg)}。`, 'form-error')) {
@@ -383,7 +333,6 @@ readState();
 candidate = readCandidate();
 configureInputs();
 render();
-configureFlightSearch();
 
 window.addEventListener('storage', event => {
   if (event.key !== core.STORAGE_KEY && event.key !== null) return;

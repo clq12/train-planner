@@ -2,7 +2,6 @@ const express = require('express');
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
-const { createFlightService, createHandlers } = require('./public/domestic-flight-service.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1326,14 +1325,10 @@ app.get('/api/cookie-status', async (req, res) => {
   }
 });
 
-// ========== 中国内地单程航班（仅报价，无预订/支付） ==========
-// The only credential source is the server environment. Never log provider errors or payloads.
-const domesticFlights = createHandlers(createFlightService({
-  fetchImpl: fetch,
-  getToken: () => process.env.DUFFEL_ACCESS_TOKEN,
-}));
-app.get('/api/domestic-flights/status', domesticFlights.status);
-app.post('/api/domestic-flights/search', express.json({ limit: '2kb', strict: true }), domesticFlights.invalidBody, domesticFlights.search);
+// Cached clients get a terminal response without parsing their body or contacting a provider.
+app.all(['/api/domestic-flights/status', '/api/domestic-flights/search'], (req, res) => {
+  res.set('Cache-Control', 'no-store').status(410).json({ status: 1, code: 'FEATURE_REMOVED', error: '航班报价查询已移除，请手动录入航班。' });
+});
 
 // ========== 全局错误处理 ==========
 app.use((err, req, res, next) => {

@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>出行日程 · 票路</title>
-  <link rel="stylesheet" href="/itinerary.css">
-  <script defer src="/itinerary-core.js?v=20261120-airports2"></script>
-  <script defer src="/domestic-flight-service.js?v=20261120-airports2"></script>
-  <script defer src="/itinerary.js?v=20261120-airports2"></script>
+  <link rel="stylesheet" href="/itinerary.css?v=20261120-places2">
+  <script defer src="/itinerary-core.js?v=20261120-places2"></script>
+  <script defer src="/place-suggestions.js?v=20261120-places2"></script>
+  <script defer src="/itinerary.js?v=20261120-places2"></script>
 </head>
 <body>
 <main>
@@ -18,53 +18,6 @@
   </header>
   <div class="layout">
     <div class="stack">
-      <section class="panel" aria-labelledby="flight-search-title">
-        <h2 id="flight-search-title">中国内地单程航班</h2>
-        <p class="note">仅查询列表内机场，不含港澳台；经济舱，成人总价。国内航线覆盖取决于供应商账号权限，尚未经真实联测。</p>
-        <p id="flight-search-status" class="message" role="status" aria-live="polite">机场列表已内置；正在检查航班搜索配置，也可在右侧手动录入。</p>
-        <form id="flight-search-form">
-          <div class="fields">
-            <label>出发机场（IATA 码 · 机场名称）<select name="origin" id="flight-origin" required>
-              <option value="PEK">PEK · 北京首都机场</option><option value="PKX">PKX · 北京大兴机场</option><option value="SHA">SHA · 上海虹桥机场</option><option value="PVG">PVG · 上海浦东机场</option>
-              <option value="CAN">CAN · 广州白云机场</option><option value="SZX">SZX · 深圳宝安机场</option><option value="CTU">CTU · 成都双流机场</option><option value="TFU">TFU · 成都天府机场</option>
-              <option value="CKG">CKG · 重庆江北机场</option><option value="KMG">KMG · 昆明长水机场</option><option value="XIY">XIY · 西安咸阳机场</option><option value="HGH">HGH · 杭州萧山机场</option>
-              <option value="NKG">NKG · 南京禄口机场</option><option value="WUH">WUH · 武汉天河机场</option><option value="CGO">CGO · 郑州新郑机场</option><option value="CSX">CSX · 长沙黄花机场</option>
-              <option value="TAO">TAO · 青岛胶东机场</option><option value="TNA">TNA · 济南遥墙机场</option><option value="XMN">XMN · 厦门高崎机场</option><option value="FOC">FOC · 福州长乐机场</option>
-              <option value="HAK">HAK · 海口美兰机场</option><option value="SYX">SYX · 三亚凤凰机场</option><option value="HRB">HRB · 哈尔滨太平机场</option><option value="CGQ">CGQ · 长春龙嘉机场</option>
-              <option value="SHE">SHE · 沈阳桃仙机场</option><option value="DLC">DLC · 大连周水子机场</option><option value="TSN">TSN · 天津滨海机场</option>
-              <option value="TYN">TYN · 太原武宿机场</option><option value="SJW">SJW · 石家庄正定机场</option><option value="NNG">NNG · 南宁吴圩机场</option><option value="KWL">KWL · 桂林两江机场</option>
-              <option value="KWE">KWE · 贵阳龙洞堡机场</option><option value="URC">URC · 乌鲁木齐天山机场</option><option value="LHW">LHW · 兰州中川机场</option><option value="XNN">XNN · 西宁曹家堡机场</option>
-              <option value="INC">INC · 银川河东机场</option><option value="LXA">LXA · 拉萨贡嘎机场</option><option value="WUX">WUX · 无锡硕放机场</option><option value="NGB">NGB · 宁波栎社机场</option>
-              <option value="WNZ">WNZ · 温州龙湾机场</option><option value="HFE">HFE · 合肥新桥机场</option><option value="KHN">KHN · 南昌昌北机场</option><option value="ZUH">ZUH · 珠海金湾机场</option>
-            </select></label>
-            <label>到达机场（IATA 码 · 机场名称）<select name="destination" id="flight-destination" required>
-              <option value="PEK">PEK · 北京首都机场</option><option value="PKX">PKX · 北京大兴机场</option><option value="SHA" selected>SHA · 上海虹桥机场</option><option value="PVG">PVG · 上海浦东机场</option>
-              <option value="CAN">CAN · 广州白云机场</option><option value="SZX">SZX · 深圳宝安机场</option><option value="CTU">CTU · 成都双流机场</option><option value="TFU">TFU · 成都天府机场</option>
-              <option value="CKG">CKG · 重庆江北机场</option><option value="KMG">KMG · 昆明长水机场</option><option value="XIY">XIY · 西安咸阳机场</option><option value="HGH">HGH · 杭州萧山机场</option>
-              <option value="NKG">NKG · 南京禄口机场</option><option value="WUH">WUH · 武汉天河机场</option><option value="CGO">CGO · 郑州新郑机场</option><option value="CSX">CSX · 长沙黄花机场</option>
-              <option value="TAO">TAO · 青岛胶东机场</option><option value="TNA">TNA · 济南遥墙机场</option><option value="XMN">XMN · 厦门高崎机场</option><option value="FOC">FOC · 福州长乐机场</option>
-              <option value="HAK">HAK · 海口美兰机场</option><option value="SYX">SYX · 三亚凤凰机场</option><option value="HRB">HRB · 哈尔滨太平机场</option><option value="CGQ">CGQ · 长春龙嘉机场</option>
-              <option value="SHE">SHE · 沈阳桃仙机场</option><option value="DLC">DLC · 大连周水子机场</option><option value="TSN">TSN · 天津滨海机场</option>
-              <option value="TYN">TYN · 太原武宿机场</option><option value="SJW">SJW · 石家庄正定机场</option><option value="NNG">NNG · 南宁吴圩机场</option><option value="KWL">KWL · 桂林两江机场</option>
-              <option value="KWE">KWE · 贵阳龙洞堡机场</option><option value="URC">URC · 乌鲁木齐天山机场</option><option value="LHW">LHW · 兰州中川机场</option><option value="XNN">XNN · 西宁曹家堡机场</option>
-              <option value="INC">INC · 银川河东机场</option><option value="LXA">LXA · 拉萨贡嘎机场</option><option value="WUX">WUX · 无锡硕放机场</option><option value="NGB">NGB · 宁波栎社机场</option>
-              <option value="WNZ">WNZ · 温州龙湾机场</option><option value="HFE">HFE · 合肥新桥机场</option><option value="KHN">KHN · 南昌昌北机场</option><option value="ZUH">ZUH · 珠海金湾机场</option>
-            </select></label>
-          </div>
-          <div class="fields">
-            <label>出发日期（北京时间）<input name="departureDate" id="flight-date" type="date" required></label>
-            <label>成人数（经济舱）<input name="adults" type="number" min="1" max="6" value="1" required></label>
-            <label>最多中转次数<select name="maxConnections"><option value="1">1 次中转</option><option value="0">直飞（可能含经停）</option></select></label>
-          </div>
-          <div class="actions">
-            <button id="flight-search-submit" class="primary" type="submit" disabled>查询航班报价</button>
-            <button id="flight-config-retry" type="button">重新检查配置</button>
-            <a href="#form-title">手动录入航班</a>
-          </div>
-        </form>
-        <p class="note flight-disclaimer">最多显示 10 个报价，报价和余位随时变化；测试模式结果不是真实可售航班。保存仅加入本浏览器日程，不等于订票。各段中转与火车、地面接驳均需自行核对。</p>
-        <div id="flight-results" class="flight-results" aria-live="polite"></div>
-      </section>
       <section id="candidate" class="panel" aria-labelledby="candidate-title" hidden>
         <h2 id="candidate-title">候选车次</h2>
         <div id="candidate-content"></div>
@@ -92,8 +45,16 @@
             <label><span id="number-label">航班号</span><input name="number" maxlength="32" placeholder="如 CA1831" required></label>
           </div>
           <div class="fields">
-            <label>出发地<input name="from" maxlength="80" placeholder="如 PEK 北京首都机场" required></label>
-            <label>到达地<input name="to" maxlength="80" placeholder="如 SHA 上海虹桥机场" required></label>
+            <div class="place-field">
+              <label for="place-from">出发地</label>
+              <input id="place-from" name="from" maxlength="80" placeholder="如 PEK 北京首都机场" autocomplete="off" required>
+              <ul id="place-from-options" class="place-options" role="listbox" aria-label="出发地建议" hidden></ul>
+            </div>
+            <div class="place-field">
+              <label for="place-to">到达地</label>
+              <input id="place-to" name="to" maxlength="80" placeholder="如 SHA 上海虹桥机场" autocomplete="off" required>
+              <ul id="place-to-options" class="place-options" role="listbox" aria-label="到达地建议" hidden></ul>
+            </div>
           </div>
           <div class="time-fields">
             <label>当地出发时间<input type="datetime-local" name="departure" required></label>
@@ -125,19 +86,5 @@
     </div>
   </div>
 </main>
-<script>
-// Keep the domestic airport picker usable if a network filter blocks external scripts.
-(function () {
-  var input = document.getElementById('flight-date');
-  if (!input) return;
-  var now = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  function day(offset) {
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + offset)).toISOString().slice(0, 10);
-  }
-  input.min = day(0);
-  input.value = day(1);
-  input.max = day(330);
-})();
-</script>
 </body>
 </html>
