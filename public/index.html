@@ -27,6 +27,9 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .header h1{font-size:1.9em;font-weight:800;background:linear-gradient(135deg,var(--accent),#0F766E,var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
 .header p{color:var(--text2);font-size:.88em}
 .header .badge-live{display:inline-block;background:rgba(16,185,129,.1);color:var(--success);padding:2px 9px;border-radius:10px;font-size:.7em;font-weight:600;margin-top:6px;border:1px solid rgba(16,185,129,.2)}
+.itinerary-link{display:inline-block;margin-top:10px;color:var(--accent);font-size:.84em;font-weight:600;text-underline-offset:3px}
+.train-itinerary{padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--accent);font-size:.75em;text-decoration:none}
+.train-itinerary:hover{border-color:var(--accent)}
 
 .search-panel{background:var(--card);border-radius:14px;padding:20px;margin-bottom:16px;border:1px solid var(--border)}
 .search-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
@@ -582,6 +585,7 @@ body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
     <p><span class="hdr-prefix">车票路径规划器 · </span>直达没票，换条路走</p>
     <p class="sub">12306 实时数据 · 六种购票策略</p>
     <span class="badge-live">● 接入12306实时数据</span>
+    <div><a class="itinerary-link" href="/itinerary.html">✈ 出行日程 · 火车与航班</a></div>
 
     <div class="layout-bar" role="group" aria-label="列表布局">
       <button class="layout-btn active" data-cols="1" aria-pressed="true">
@@ -738,10 +742,12 @@ body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
 
 <button class="back-to-top" id="backToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="回到顶部">↑</button>
 
+<script src="/itinerary-core.js"></script>
 <script>
 let allStations = {};
 let stationList = [];
 let currentTrains = [];
+let currentTrainSearchDate = '';
 let currentTab = 'direct';
 
 // ========== 车站搜索 ==========
@@ -949,6 +955,7 @@ async function doSearch() {
 
     if (data.status === 0 && data.data) {
       currentTrains = data.data;
+      currentTrainSearchDate = date;
       const availCount = data.availableCount || 0;
       const totalCount = data.totalCount || currentTrains.length;
       showProgress(`查到 ${totalCount} 个车次，${availCount} 个有票，正在分析...`, 50);
@@ -1301,6 +1308,16 @@ function renderTrainCards(trains) {
   el.innerHTML = trains.map((t,i) => trainCardHTML(t,i)).join('');
 }
 
+function itineraryTrainLink(train) {
+  try {
+    const leg = window.ItineraryCore.trainToLeg(train, currentTrainSearchDate);
+    return `<a class="train-itinerary" href="/itinerary.html#train=${encodeURIComponent(JSON.stringify(leg))}">比对出行日程</a>`;
+  } catch {
+    // Incomplete third-party times must not block rendering the rail results.
+    return '';
+  }
+}
+
 function trainCardHTML(t, idx) {
   const tp = trainType(t.trainNo);
   const tl = {g:'高铁',d:'动车',k:'快速',z:'直达',t:'特快'}[tp]||'其他';
@@ -1348,7 +1365,8 @@ function trainCardHTML(t, idx) {
       <div class="seats">
         ${seats.map(s => {const h=s.v&&s.v!=='无'&&s.v!=='--';return `<span class="seat ${h?'has':'no'}"><span class="stype">${s.n}</span>${s.v||'--'}</span>`;}).join('')}
       </div>
-      <div style="margin-top:8px;display:flex;gap:6px">
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        ${itineraryTrainLink(t)}
         <button onclick="event.stopPropagation();showScheduleModal('${escapeHTML(t.trainCode)}','${escapeHTML(t.fromStationCode)}','${escapeHTML(t.toStationCode)}','${escapeHTML(t.trainNo)}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">📋 时刻表</button>
         <button onclick="event.stopPropagation();showBuyLong('${escapeHTML(t.trainNo)}','${escapeHTML(t.trainCode)}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">🎯 买长乘短</button>
       </div>
@@ -3028,15 +3046,8 @@ function seatTagsHTML(t) {
 
 // ========== Init ==========
 async function init() {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  document.getElementById('travelDate').value = tomorrow.toISOString().split('T')[0];
-  // Set min date to today
-  document.getElementById('travelDate').min = new Date().toISOString().split('T')[0];
-  // Set max date to 15 days from now (12306 limit)
-  const maxDate = new Date();
-  maxDate.setDate(maxDate.getDate() + 15);
-  document.getElementById('travelDate').max = maxDate.toISOString().split('T')[0];
+  // Rail queries use Beijing calendar dates, regardless of the browser time zone.
+  Object.assign(document.getElementById('travelDate'), window.ItineraryCore.trainSearchDates());
 
   setupStationInput('fromInput','fromDropdown','fromCode');
   setupStationInput('toInput','toDropdown','toCode');

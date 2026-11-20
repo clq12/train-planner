@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>出行日程 · 票路</title>
+  <link rel="stylesheet" href="/itinerary.css">
+  <script defer src="/itinerary-core.js"></script>
+  <script defer src="/itinerary.js"></script>
+</head>
+<body>
+<main>
+  <header class="page-header">
+    <a class="back" href="/">← 返回票路查火车</a>
+    <h1>出行日程</h1>
+    <p>把航班、火车和地面接驳放在一条时间线上，看看能不能接得上。</p>
+  </header>
+  <div class="layout">
+    <div class="stack">
+      <section id="candidate" class="panel" aria-labelledby="candidate-title" hidden>
+        <h2 id="candidate-title">候选车次</h2>
+        <div id="candidate-content"></div>
+        <p class="note">候选车次来自 12306 查询结果。订票前请确认当前余票。</p>
+        <div class="actions">
+          <button type="button" id="accept-candidate" class="primary">加入日程</button>
+          <button type="button" id="dismiss-candidate">移除候选</button>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="timeline-title">
+        <h2 id="timeline-title" tabindex="-1">我的日程</h2>
+        <p class="note">按实际出发时间排序，每段显示当地时间。日程仅保存在此浏览器。</p>
+        <p id="timeline-status" class="message" role="status"></p>
+        <p id="empty" class="empty">还没有行程。可先录入航班，再从票路的直达结果里选车次比对日程。</p>
+        <ol id="timeline" class="timeline"></ol>
+      </section>
+    </div>
+    <div class="stack">
+      <section class="panel" aria-labelledby="form-title">
+        <h2 id="form-title" tabindex="-1">添加一段行程</h2>
+        <p class="note">航班按票面当地日期和时间手动录入。<a href="https://www.google.com/travel/flights?hl=zh-CN" target="_blank" rel="noopener noreferrer">查找航班 ↗</a></p>
+        <form id="leg-form">
+          <div class="fields">
+            <label>交通方式<select name="kind" id="leg-kind"><option value="flight">航班</option><option value="train">火车</option><option value="ground">地面接驳</option></select></label>
+            <label><span id="number-label">航班号</span><input name="number" maxlength="32" placeholder="如 CA1831" required></label>
+          </div>
+          <div class="fields">
+            <label>出发地<input name="from" maxlength="80" placeholder="如 PEK 北京首都机场" required></label>
+            <label>到达地<input name="to" maxlength="80" placeholder="如 SHA 上海虹桥机场" required></label>
+          </div>
+          <div class="time-fields">
+            <label>当地出发时间<input type="datetime-local" name="departure" required></label>
+            <label>出发 UTC 时差<input name="departureOffset" value="+08:00" maxlength="6" required></label>
+            <label>当地到达时间<input type="datetime-local" name="arrival" required></label>
+            <label>到达 UTC 时差<input name="arrivalOffset" value="+08:00" maxlength="6" required></label>
+          </div>
+          <p class="note">国内火车使用北京时间。国际航班请按航班日期确认两地时差（含夏令时），跨夜请填写次日实际到达日期。</p>
+          <p id="form-error" class="message error" role="alert"></p>
+          <div class="actions">
+            <button type="submit" id="save-leg" class="primary">添加到日程</button>
+            <button type="button" id="cancel-edit" hidden>取消编辑</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel" aria-labelledby="settings-title">
+        <h2 id="settings-title">接驳预留</h2>
+        <form id="settings-form">
+          <div class="fields">
+            <label>下一段为航班（分钟）<input name="flight" type="number" min="0" max="1440" required></label>
+            <label>航班后接火车或地面交通（分钟）<input name="afterFlight" type="number" min="0" max="1440" required></label>
+            <label>其他情况接火车（分钟）<input name="train" type="number" min="0" max="1440" required></label>
+          </div>
+          <p class="note">航班落地后接火车或地面交通默认预留 90 分钟；下一段为航班时使用登机前预留。按你填的预留时间判断，达到设置值仍需核对实际接驳。机场、车站或航站楼不同，请加入实际地面接驳，并计入值机、安检、取行李等时间。</p>
+          <button type="submit">保存接驳预留</button>
+          <p id="settings-status" class="message" role="status"></p>
+        </form>
+      </section>
+    </div>
+  </div>
+</main>
+</body>
+</html>
