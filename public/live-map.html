@@ -68,6 +68,10 @@ button,input{font-family:inherit}
 .detail .tools button{flex:1;border:1px solid var(--border);background:var(--bg);border-radius:7px;padding:6px 4px;font-size:.85em;cursor:pointer;color:var(--text2)}
 .detail .tools button:hover{border-color:var(--accent);color:var(--accent)}
 .controls select{border:1px solid var(--border);border-radius:8px;padding:6px 6px;font-size:.78em;background:var(--bg);color:var(--text);outline:none}
+.speed-wrap{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}
+.speed-cap{font-size:.72em;color:var(--text2);white-space:nowrap}
+.speed-wrap input[type=range]{width:118px;accent-color:var(--accent);margin:0}
+.speed-val{font-size:.78em;font-weight:600;color:var(--accent);min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
 .sta-label{color:var(--accent);font-size:10px;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px #fff,0 0 3px #fff;pointer-events:none}
 .legend{position:absolute;left:12px;bottom:24px;background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:10px;padding:8px 10px;z-index:1000;font-size:.7em;box-shadow:var(--shadow);max-width:300px}
 .legend .row{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:5px}
@@ -110,16 +114,14 @@ button,input{font-family:inherit}
 
 <div class="controls" id="controls">
   <input type="date" id="mapDate" title="运行日期">
-  <input type="range" id="timeRange" min="0" max="1439" step="1" value="480">
-  <span class="clock" id="clock">08:00</span>
-  <button class="btn" id="playBtn" title="按分钟播放">▶ 播放</button>
-  <select id="speedSel" title="播放速度">
-    <option value="1600">0.5×</option>
-    <option value="800" selected>1×</option>
-    <option value="400">2×</option>
-    <option value="200">4×</option>
-    <option value="100">8×</option>
-  </select>
+  <input type="range" id="timeRange" min="0" max="1439.9167" step="0.0833333" value="480">
+  <span class="clock" id="clock">08:00:00</span>
+  <button class="btn" id="playBtn" title="按 5 秒步进播放">▶ 播放</button>
+  <span class="speed-wrap" title="播放速度：1× 每秒走 5 秒，120× 每秒走 10 分钟">
+    <span class="speed-cap">速度</span>
+    <input type="range" id="speedRange" min="1" max="120" step="1" value="1">
+    <span class="speed-val" id="speedVal">1×</span>
+  </span>
   <button class="btn" id="nowBtn" title="回到当前时刻并自动刷新">现在</button>
   <input type="text" id="search" placeholder="车次 / 车站，如 G1、福州" autocomplete="off">
   <div class="chips" id="typeChips"></div>
@@ -170,7 +172,17 @@ button,input{font-family:inherit}
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var typeOf = function (t) { return TYPES[t] ? t : 'O'; };
   var pad = function (n) { return String(n).padStart(2, '0'); };
-  var clockText = function (m) { m = ((m % 1440) + 1440) % 1440; return pad(Math.floor(m / 60)) + ':' + pad(Math.floor(m % 60)); };
+  // 分钟浮点数：5 秒 = 1/12 分钟，时钟显示到秒
+  var STEP_MIN = 1 / 12;
+  var clockText = function (m) {
+    var total = Math.round((((m % 1440) + 1440) % 1440) * 60);   // 一天内的整数秒
+    return pad(Math.floor(total / 3600)) + ':' + pad(Math.floor(total / 60) % 60) + ':' + pad(total % 60);
+  };
+  // hash / 外部站点仍用 HH:MM，避免破坏兼容
+  var clockHM = function (m) {
+    var total = Math.round((((m % 1440) + 1440) % 1440) * 60);
+    return pad(Math.floor(total / 3600)) + ':' + pad(Math.floor(total / 60) % 60);
+  };
   var beijingDate = function () { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); };
   var dateToDay = function (s) { var p = s.split('-').map(Number); return Math.round(Date.UTC(p[0], p[1] - 1, p[2]) / 86400000); };
   var timeToMs = function (date, minutes) { return dateToDay(date) * 86400000 - 8 * 3600000 + minutes * 60000; };
@@ -211,8 +223,8 @@ button,input{font-family:inherit}
     if (m) { init.zoom = +m[1]; init.lat = +m[2]; init.lon = +m[3]; }
     var v = raw.match(/@(-?[0-9.]+),(-?[0-9.]+)(?:,([0-9.]+))?z?/);
     if (v) { init.lat = +v[1]; init.lon = +v[2]; if (v[3]) init.zoom = +v[3]; }
-    var t = raw.match(/time=(\d{1,2}):(\d{2})/);
-    if (t) init.minutes = (+t[1]) * 60 + (+t[2]);
+    var t = raw.match(/time=(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (t) init.minutes = (+t[1]) * 60 + (+t[2]) + (t[3] ? (+t[3]) / 60 : 0);
     var d = raw.match(/date=(\d{4}-\d{2}-\d{2})/);
     if (d) init.date = d[1];
     var th = raw.match(/theme=(\w+)/);
@@ -244,7 +256,9 @@ button,input{font-family:inherit}
   var playing = false, playTimer = null, liveTimer = null, fetchSeq = 0, selectedTrainCode = null;
   // 位置请求：最小间隔节流 + 单飞行，避免高速播放时 debounce 吞请求 / 高频请求饿死
   var fetchTimer = null, nextFetchAt = 0, fetching = false, fetchPending = false;
-  var playMs = 800, animMs = 650, detailData = null, detailTab = 'table';
+  // 播放：速度 N× = 每真实秒推进 N 个 5 秒步长（1×=5秒/秒，120×=10分钟/秒）
+  var speed = 1, playMs = 1000, animMs = 650, playRaf = 0, playLast = 0, playCarry = 0;
+  var hashTimer = null, detailData = null, detailTab = 'table';
   var animating = new Map(), rafId = 0, replayVisible = false;
 
   Object.keys(TYPES).forEach(function (k) { activeTypes[k] = true; });
@@ -252,7 +266,7 @@ button,input{font-family:inherit}
   $('replayDate').value = dateStr;
   $('timeRange').value = minutes;
   $('clock').textContent = clockText(minutes);
-  $('replayTime').value = clockText(minutes);
+  $('replayTime').value = clockHM(minutes);
 
   $('typeChips').innerHTML = Object.keys(TYPES).map(function (k) {
     return '<span class="chip on" data-t="' + k + '" style="background:' + TYPES[k].color + ';color:#fff">' + k + '</span>';
@@ -682,13 +696,18 @@ button,input{font-family:inherit}
     }
     if (wait <= 0) run(); else fetchTimer = setTimeout(run, wait);
   }
-  function setTime(m, fromUser) {
+  function setTime(m, fromUser, align5) {
     minutes = ((m % 1440) + 1440) % 1440;
+    if (align5) minutes = Math.floor(minutes * 12 + 1e-6) / 12;   // 对齐到 5 秒
     $('timeRange').value = minutes;
     $('clock').textContent = clockText(minutes);
-    $('replayTime').value = clockText(minutes);
+    $('replayTime').value = clockHM(minutes);
     refreshDetail();                      // 选中车次后，时钟推进时同步刷新状态 / 时刻表高亮 / 运行图“现在”线
-    if (fromUser) { stopLive(); writeHash(); scheduleFetch(); }
+    if (fromUser) {
+      stopLive();
+      clearTimeout(hashTimer); hashTimer = setTimeout(writeHash, 150);  // hash 节流，避免高速播放频繁写历史
+      scheduleFetch();
+    }
   }
   $('timeRange').addEventListener('input', function () { setTime(+this.value, true); });
   $('mapDate').onchange = function () { dateStr = this.value; $('replayDate').value = dateStr; stopLive(); writeHash(); fetchTrains(); };
@@ -716,19 +735,45 @@ button,input{font-family:inherit}
   $('nowBtn').onclick = startLive;
   function startPlay() {
     stopLive();
-    playTimer = setInterval(function () { setTime(minutes + 1, true); }, playMs);
+    playLast = 0; playCarry = 0;
+    function frame(ts) {
+      if (!playing) return;
+      if (!playLast) playLast = ts;
+      var dt = Math.min(100, ts - playLast);       // 单帧最多补 100ms，防止切后台跳变
+      playLast = ts;
+      playCarry += dt * speed * 5 / 1000;          // 该推进的秒数：速度 × 真实秒 × 5
+      var steps = Math.floor(playCarry / 5);
+      if (steps > 0) {
+        playCarry -= steps * 5;
+        setTime(minutes + steps * STEP_MIN, true); // 每一步 5 秒
+      }
+      playRaf = requestAnimationFrame(frame);
+    }
+    playRaf = requestAnimationFrame(frame);
+  }
+  function stopPlay() {
+    playing = false;
+    if (playRaf) cancelAnimationFrame(playRaf);
+    if (playTimer) clearInterval(playTimer);
+    playRaf = 0; playTimer = null; playLast = 0; playCarry = 0; nextFetchAt = 0;
+    $('playBtn').textContent = '▶ 播放';
+    $('playBtn').classList.remove('on');
   }
   $('playBtn').onclick = function () {
-    playing = !playing;
-    this.textContent = playing ? '⏸ 暂停' : '▶ 播放';
-    this.classList.toggle('on', playing);
-    if (playing) startPlay(); else { clearInterval(playTimer); playTimer = null; nextFetchAt = 0; }
+    if (playing) { stopPlay(); return; }
+    playing = true;
+    this.textContent = '⏸ 暂停';
+    this.classList.add('on');
+    startPlay();
   };
-  $('speedSel').onchange = function () {
-    playMs = +this.value;
+  function applySpeed() {
+    speed = +$('speedRange').value;
+    playMs = 1000 / speed;                          // 一个 5 秒步长的真实耗时
     animMs = Math.min(650, Math.round(playMs * 0.85));
-    if (playing) { clearInterval(playTimer); startPlay(); }
-  };
+    $('speedVal').textContent = speed + '×';
+  }
+  $('speedRange').addEventListener('input', applySpeed);
+  applySpeed();
   $('refreshBtn') && ($('refreshBtn').onclick = fetchTrains);
 
   function loadLines() {
@@ -774,7 +819,7 @@ button,input{font-family:inherit}
   function replayUrl(code) {
     var c = map.getCenter(), z = Math.max(4, Math.min(12, Math.round(map.getZoom())));
     var sel = code ? encodeURIComponent(code) + '&' : '';
-    return 'https://www.yupiao.info/#' + sel + 'time=' + clockText(minutes) +
+    return 'https://www.yupiao.info/#' + sel + 'time=' + clockHM(minutes) +
       '&date=' + dateStr + '&@' + c.lat.toFixed(4) + ',' + c.lng.toFixed(4) + ',' + z + 'z';
   }
   function openReplayFor(code) {
@@ -813,7 +858,7 @@ button,input{font-family:inherit}
   if (init.legs && init.legs.length >= 2) openDeepLinkedLegs();
   else if (init.train) openDeepLinkedTrain();
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden && playTimer) { clearInterval(playTimer); playTimer = null; nextFetchAt = 0; playing = false; $('playBtn').textContent = '▶ 播放'; $('playBtn').classList.remove('on'); }
+    if (document.hidden && playing) stopPlay();
   });
 })();
 </script>
