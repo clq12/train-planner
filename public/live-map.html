@@ -457,7 +457,9 @@ button,input{font-family:inherit}
           m.setLatLng([gLat, gLon]);
           var tt = trainById.get(m._uid);
           var brg = tt ? (tt.bearing || 0) : 0;
-          var dLat = trk.lats[i0 + 1] - trk.lats[i0], dLon = trk.lons[i0 + 1] - trk.lons[i0];
+          // 用前方约 3 个样本算朝向，避免相邻两点在弯道上的小折线让箭头左右摆
+          var bj = Math.min(i0 + 3, trk.lats.length - 1);
+          var dLat = trk.lats[bj] - trk.lats[i0], dLon = trk.lons[bj] - trk.lons[i0];
           if (Math.abs(dLat) + Math.abs(dLon) > 1e-9) {
             brg = (Math.atan2(dLon * Math.cos(lat * Math.PI / 180), dLat) * 180 / Math.PI + 360) % 360;
           }
@@ -623,17 +625,11 @@ button,input{font-family:inherit}
     }
     if (followTrain) followTo(q[1], q[0]);
   }
-  // 跟随中心做低通，避免轨道样本/屏幕像素量化造成整屏轻微抖动
+  // 跟随中心直接对准车头；不要做低通，否则 Leaflet 的整数像素取整会让画面每隔几帧才挪 1px，更顿
   function followTo(gLat, gLon) {
     if (!followTrain) return;
-    if (!followPos) followPos = { lat: gLat, lon: gLon };
-    else {
-      var dLat = gLat - followPos.lat, dLon = gLon - followPos.lon;
-      if (Math.abs(dLat) + Math.abs(dLon) < 1e-9) return;
-      followPos.lat += dLat * .35;
-      followPos.lon += dLon * .35;
-    }
-    map.setView([followPos.lat, followPos.lon], map.getZoom(), { animate: false });
+    followPos = { lat: gLat, lon: gLon };
+    map.setView([gLat, gLon], map.getZoom(), { animate: false });
   }
   // 选中车每帧都在动，焦点箭头也要跟着走，不能只靠每 600ms 一次的车次列表刷新
   function moveFocusMarker(gLat, gLon, bearing) {
@@ -644,7 +640,7 @@ button,input{font-family:inherit}
     else {
       // 沿最短夹角做低通，去掉采样点切换时车头左右摆动的抖感
       var delta = ((bearing - focusBearing + 540) % 360) - 180;
-      if (Math.abs(delta) > 0.35) focusBearing = (focusBearing + delta * 0.16 + 360) % 360;
+      focusBearing = (focusBearing + delta * 0.35 + 360) % 360;
     }
     var svg = focusMarker.getElement() && focusMarker.getElement().querySelector('svg');
     if (svg) svg.style.transform = 'rotate(' + focusBearing.toFixed(1) + 'deg)';
@@ -695,6 +691,19 @@ button,input{font-family:inherit}
     });
     return html + '</tbody></table>';
   }
+  // 播放时只改行状态，不重建整张表，避免面板每 120ms 闪一下
+  function updateTableState(t) {
+    var body = $('detailBody'); if (!body) return false;
+    var stops = (detailData && detailData.stops) || [];
+    var rows = body.querySelectorAll('tbody tr');
+    if (!rows.length || rows.length !== stops.length) return false;
+    var now = timeToMs(dateStr, minutes);
+    for (var i = 0; i < stops.length; i++) {
+      var s = stops[i];
+      rows[i].className = s.name === t.from ? 'cur' : (s.name === t.to ? 'next' : (s.dep && s.dep < now ? 'past' : ''));
+    }
+    return true;
+  }
 
   function renderChart() {
     var stops = (detailData && detailData.stops) || [];
@@ -721,10 +730,26 @@ button,input{font-family:inherit}
     var now = timeToMs(dateStr, minutes);
     if (now >= t0 && now <= t1) {
       var nx = X(now);
-      s += '<line x1="' + nx + '" y1="18" x2="' + nx + '" y2="' + (H - 8) + '" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="4 3"/>' +
-        '<text x="' + (nx + 3) + '" y="24" font-size="10" fill="#DC2626">现在</text>';
+      s += '<line id="nowLine" x1="' + nx + '" y1="18" x2="' + nx + '" y2="' + (H - 8) + '" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="4 3"/>' +
+        '<text id="nowText" x="' + (nx + 3) + '" y="24" font-size="10" fill="#DC2626">现在</text>';
     }
     return s + '</svg></div>';
+  }
+  function updateChartNow() {
+    var body = $('detailBody'); if (!body) return false;
+    var line = body.querySelector('#nowLine'), text = body.querySelector('#nowText');
+    if (!line || !text) return false;
+    var stops = (detailData && detailData.stops) || [];
+    if (stops.length < 2) return false;
+    var t0 = stops[0].dep || stops[0].arr;
+    var t1 = stops[stops.length - 1].arr || stops[stops.length - 1].dep;
+    if (t0 == null || t1 == null || t1 <= t0) return false;
+    var now = timeToMs(dateStr, minutes);
+    if (now < t0 || now > t1) { line.style.display = 'none'; text.style.display = 'none'; return true; }
+    var nx = 52 + (now - t0) / (t1 - t0) * 248;
+    line.setAttribute('x1', nx); line.setAttribute('x2', nx); line.style.display = '';
+    text.setAttribute('x', nx + 3); text.style.display = '';
+    return true;
   }
 
   function bindStopLinks() {
@@ -747,8 +772,11 @@ button,input{font-family:inherit}
       kv[1].textContent = t.moving ? t.speed + ' km/h' : '停站中';
     }
     var body = $('detailBody'); if (!body) return;
-    body.innerHTML = detailTab === 'chart' ? renderChart() : renderTable();
-    bindStopLinks();
+    var inPlace = detailTab === 'chart' ? updateChartNow() : updateTableState(t);
+    if (!inPlace) {
+      body.innerHTML = detailTab === 'chart' ? renderChart() : renderTable();
+      bindStopLinks();
+    }
   }
 
   function renderPanel() {
