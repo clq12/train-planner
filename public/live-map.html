@@ -233,7 +233,9 @@ button,input{font-family:inherit}
   var trains = [], trainById = new Map(), markers = new Map(), stations = [], selectedId = null;
   var query = '', activeTypes = {}, labelsOn = false, stationsOn = true;
   var minutes = init.minutes, dateStr = init.date, theme = init.theme;
-  var playing = false, playTimer = null, liveTimer = null, fetchSeq = 0, debounce = null, selectedTrainCode = null;
+  var playing = false, playTimer = null, liveTimer = null, fetchSeq = 0, selectedTrainCode = null;
+  // 位置请求：最小间隔节流 + 单飞行，避免高速播放时 debounce 吞请求 / 高频请求饿死
+  var fetchTimer = null, nextFetchAt = 0, fetching = false, fetchPending = false;
   var playMs = 800, animMs = 650, detailData = null, detailTab = 'table';
   var animating = new Map(), rafId = 0, replayVisible = false;
 
@@ -477,6 +479,30 @@ button,input{font-family:inherit}
     return s + '</svg></div>';
   }
 
+  function bindStopLinks() {
+    Array.prototype.forEach.call($('detail').querySelectorAll('#detailBody a[data-stop]'), function (a) {
+      a.onclick = function () {
+        var st = (detailData && detailData.stops || [])[+a.dataset.stop]; if (!st) return;
+        var ms = st.arr != null ? st.arr : st.dep;
+        if (ms != null) { var d = new Date(ms + 8 * 3600000); setTime(d.getUTCHours() * 60 + d.getUTCMinutes(), true); }
+        if (st.lat != null) { var q = wgs2gcj(st.lon, st.lat); map.flyTo([q[1], q[0]], Math.max(map.getZoom(), 9), { duration: .6 }); }
+      };
+    });
+  }
+  // 播放时只更新面板内容，不重建整个结构，避免打断用户操作
+  function refreshDetail() {
+    if (!selectedId || $('detail').style.display === 'none') return;
+    var t = trainById.get(selectedId); if (!t) return;
+    var kv = $('detail').querySelectorAll('.kv b');
+    if (kv.length >= 2) {
+      kv[0].textContent = t.from + ' → ' + t.to;
+      kv[1].textContent = t.moving ? t.speed + ' km/h' : '停站中';
+    }
+    var body = $('detailBody'); if (!body) return;
+    body.innerHTML = detailTab === 'chart' ? renderChart() : renderTable();
+    bindStopLinks();
+  }
+
   function renderPanel() {
     var t = trainById.get(selectedId); if (!t) return;
     var box = $('detail');
@@ -492,14 +518,7 @@ button,input{font-family:inherit}
     Array.prototype.forEach.call(box.querySelectorAll('.tabs2 button'), function (b) {
       b.onclick = function () { detailTab = b.dataset.tab; renderPanel(); };
     });
-    Array.prototype.forEach.call(box.querySelectorAll('#detailBody a[data-stop]'), function (a) {
-      a.onclick = function () {
-        var st = (detailData && detailData.stops || [])[+a.dataset.stop]; if (!st) return;
-        var ms = st.arr != null ? st.arr : st.dep;
-        if (ms != null) { var d = new Date(ms + 8 * 3600000); setTime(d.getUTCHours() * 60 + d.getUTCMinutes(), true); }
-        if (st.lat != null) { var q = wgs2gcj(st.lon, st.lat); map.flyTo([q[1], q[0]], Math.max(map.getZoom(), 9), { duration: .6 }); }
-      };
-    });
+    bindStopLinks();
     $('fitRoute').onclick = function () {
       var pts = ((detailData && detailData.path) || []).map(function (p) { var q = wgs2gcj(p[0], p[1]); return [q[1], q[0]]; });
       if (pts.length) map.flyToBounds(pts, { padding: [60, 60], maxZoom: 10, duration: .8 });
@@ -556,27 +575,43 @@ button,input{font-family:inherit}
   }
 
   function fetchTrains() {
+    if (fetching) { fetchPending = true; return; }   // 单飞行：避免高速播放时请求堆高、响应全被 seq 丢弃
+    fetching = true;
     var seq = ++fetchSeq;
     var ms = timeToMs(dateStr, minutes);
     fetch(API + '/trains?t=' + ms, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (d) { if (seq !== fetchSeq) return; $('errBar').style.display = 'none'; renderTrains(d.trains || [], d.time); })
+      .then(function (d) {
+        if (seq === fetchSeq) { $('errBar').style.display = 'none'; renderTrains(d.trains || [], d.time); }
+      })
       .catch(function (e) {
         if (seq !== fetchSeq) return;
         $('errBar').textContent = '时刻数据暂不可用（' + e.message + '），正在重试…';
         $('errBar').style.display = '';
         $('status').classList.add('warn'); $('status').textContent = '数据中断';
+      })
+      .then(function () {
+        fetching = false;
+        if (fetchPending) { fetchPending = false; fetchTrains(); }
       });
   }
+  // 最小间隔节流：已有排队请求就不再重设定时器，播放时不会出现“每次都清空上一次”的饥饿
   function scheduleFetch() {
-    clearTimeout(debounce);
-    debounce = setTimeout(fetchTrains, 180);
+    if (fetchTimer) return;
+    var wait = Math.max(0, nextFetchAt - Date.now());
+    function run() {
+      fetchTimer = null;
+      nextFetchAt = Date.now() + (playing ? Math.max(140, Math.min(playMs, 300)) : 150);
+      fetchTrains();
+    }
+    if (wait <= 0) run(); else fetchTimer = setTimeout(run, wait);
   }
   function setTime(m, fromUser) {
     minutes = ((m % 1440) + 1440) % 1440;
     $('timeRange').value = minutes;
     $('clock').textContent = clockText(minutes);
     $('replayTime').value = clockText(minutes);
+    refreshDetail();                      // 选中车次后，时钟推进时同步刷新状态 / 时刻表高亮 / 运行图“现在”线
     if (fromUser) { stopLive(); writeHash(); scheduleFetch(); }
   }
   $('timeRange').addEventListener('input', function () { setTime(+this.value, true); });
@@ -611,7 +646,7 @@ button,input{font-family:inherit}
     playing = !playing;
     this.textContent = playing ? '⏸ 暂停' : '▶ 播放';
     this.classList.toggle('on', playing);
-    if (playing) startPlay(); else clearInterval(playTimer);
+    if (playing) startPlay(); else { clearInterval(playTimer); playTimer = null; nextFetchAt = 0; }
   };
   $('speedSel').onchange = function () {
     playMs = +this.value;
@@ -701,7 +736,7 @@ button,input{font-family:inherit}
   if (/time=/.test(location.hash)) fetchTrains(); else startLive();
   if (init.train) openDeepLinkedTrain();
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden && playTimer) { clearInterval(playTimer); playTimer = null; playing = false; $('playBtn').textContent = '▶ 播放'; }
+    if (document.hidden && playTimer) { clearInterval(playTimer); playTimer = null; nextFetchAt = 0; playing = false; $('playBtn').textContent = '▶ 播放'; $('playBtn').classList.remove('on'); }
   });
 })();
 </script>
