@@ -72,6 +72,7 @@ button,input{font-family:inherit}
 .speed-cap{font-size:.72em;color:var(--text2);white-space:nowrap}
 .speed-wrap input[type=range]{width:118px;accent-color:var(--accent);margin:0}
 .speed-val{font-size:.78em;font-weight:600;color:var(--accent);min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
+.rate-label{font-size:.74em;color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;padding:2px 6px;background:rgba(15,118,110,.08);border-radius:6px}
 .sta-label{color:var(--accent);font-size:10px;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px #fff,0 0 3px #fff;pointer-events:none}
 .legend{position:absolute;left:12px;bottom:24px;background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:10px;padding:8px 10px;z-index:1000;font-size:.7em;box-shadow:var(--shadow);max-width:300px}
 .legend .row{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:5px}
@@ -116,6 +117,7 @@ button,input{font-family:inherit}
   <input type="date" id="mapDate" title="运行日期">
   <input type="range" id="timeRange" min="0" max="1439.9167" step="0.0833333" value="480">
   <span class="clock" id="clock">08:00:00</span>
+  <span class="rate-label" id="rateLabel" title="每真实秒推进的模拟时间">1s → 5s</span>
   <button class="btn" id="playBtn" title="按 5 秒步进播放">▶ 播放</button>
   <span class="speed-wrap" title="播放速度：1/2/3/4/5/10/20/50/100/120×，1× 每秒走 5 秒，120× 每秒走 10 分钟">
     <span class="speed-cap">速度</span>
@@ -772,11 +774,19 @@ button,input{font-family:inherit}
     startPlay();
   };
   var SPEED_STEPS = [1, 2, 3, 4, 5, 10, 20, 50, 100, 120];
+  // 每真实秒推进的模拟时间：speed×5 秒；>=60 秒换算成分钟显示
+  function rateText(n) {
+    var sec = n * 5;
+    if (sec < 60) return '1s → ' + sec + 's';
+    var mi = Math.floor(sec / 60), rs = sec % 60;
+    return '1s → ' + mi + '分' + (rs ? rs + '秒' : '钟');
+  }
   function applySpeed() {
     speed = SPEED_STEPS[+$('speedRange').value] || 1;
     playMs = 1000 / speed;                          // 一个 5 秒步长的真实耗时
     animMs = Math.min(650, Math.round(playMs * 0.85));
     $('speedVal').textContent = speed + '×';
+    $('rateLabel').textContent = rateText(speed);
   }
   $('speedRange').addEventListener('input', applySpeed);
   applySpeed();
