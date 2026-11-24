@@ -295,6 +295,8 @@ button,input{font-family:inherit}
   var lastDetailRefresh = 0, lastDrawLabels = 0;
   var followTrain = false;   // 视角跟随：地图中心跟随选中车次移动
   var animating = new Map(), navMarkers = new Set(), rafId = 0, replayVisible = false;
+  // 轨道回放：服务端给视野内车次一批沿轨道的精确位置，前端按时间插值，避免高倍速直线外推跑出轨道
+  var trackCache = new Map(), trackFetching = false, trackFetchAt = 0, trackUidCount = 0, trackGen = 0;
 
   Object.keys(TYPES).forEach(function (k) { activeTypes[k] = true; });
   $('mapDate').value = dateStr;
@@ -419,6 +421,8 @@ button,input{font-family:inherit}
     navMarkers.add(m);
   }
   function animateTick(ts) {
+    if (playing) ensureTracks(false);
+    var simMs = timeToMs(dateStr, minutes);
     animating.forEach(function (a, m) {
       var p = Math.min(1, (ts - a.start) / a.dur);
       var e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
@@ -428,14 +432,32 @@ button,input{font-family:inherit}
     navMarkers.forEach(function (m) {
       var nav = m._nav;
       if (!nav) { navMarkers.delete(m); return; }
+      var lat, lon, gLat, gLon;
+      // 优先用服务端轨道采样：位置严格落在运行图上，不会在高倍速外推时切出轨道
+      var trk = trackCache.get(m._uid);
+      if (trk && trk.lats && trk.lats.length > 1) {
+        var idx = (simMs - trk.t0) / (trk.step * 1000);
+        if (idx >= 0 && idx < trk.lats.length - 1) {
+          var i0 = Math.floor(idx), f = idx - i0;
+          lat = trk.lats[i0] + (trk.lats[i0 + 1] - trk.lats[i0]) * f;
+          lon = trk.lons[i0] + (trk.lons[i0 + 1] - trk.lons[i0]) * f;
+          var tp = wgs2gcj(lon, lat);
+          gLat = tp[1]; gLon = tp[0];
+          m.setLatLng([gLat, gLon]);
+          var tt = trainById.get(m._uid);
+          if (tt) { tt.lat = lat; tt.lon = lon; }
+          if (followTrain && m._uid === selectedId) map.setView([gLat, gLon], map.getZoom(), { animate: false });
+          return;
+        }
+      }
       var realDt = Math.max(0, ts - nav.t0);
       // 只有播放时推进模拟时间；暂停后仍让修正量衰减到新样本，避免残留偏移
       var simSec = playing ? Math.min(240, realDt * speed * 5 / 1000) : 0;
       var q = projectNav(nav, simSec);
-      var lat = q.lat, lon = q.lon;
+      lat = q.lat; lon = q.lon;
       var p = wgs2gcj(lon, lat);
       var k = Math.max(0, 1 - realDt / 220);
-      var gLat = p[1] + nav.corrLat * k, gLon = p[0] + nav.corrLng * k;
+      gLat = p[1] + nav.corrLat * k; gLon = p[0] + nav.corrLng * k;
       m.setLatLng([gLat, gLon]);
       var t = trainById.get(m._uid);
       if (t) { t.lat = lat; t.lon = lon; }
@@ -784,6 +806,47 @@ button,input{font-family:inherit}
     });
   }
 
+  function clearTracks() {
+    trackGen++;
+    trackCache.clear(); trackFetchAt = 0; trackUidCount = 0;
+  }
+  function trackUids() {
+    var out = [], b = map.getBounds().pad(.05);
+    if (selectedId) out.push(selectedId);
+    markers.forEach(function (m, uid) {
+      if (out.length >= 240) return;
+      if (uid !== selectedId && b.contains(m.getLatLng())) out.push(uid);
+    });
+    return out;
+  }
+  function ensureTracks(force) {
+    if (!playing && !force) return;
+    var now = Date.now();
+    if (!force && now < trackFetchAt) return;
+    if (trackFetching) return;
+    var uids = trackUids();
+    if (!uids.length) return;
+    trackFetching = true;
+    trackUidCount = uids.length;
+    var gen = trackGen;
+    // 1200 秒模拟时间的窗口，按当前倍速在消耗约一半时刷新
+    var refresh = Math.max(1200, Math.min(60000, (1200 / Math.max(1, speed * 5)) * 1000 * .5));
+    trackFetchAt = now + refresh;
+    fetch(API + '/playback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ t: timeToMs(dateStr, minutes), span: 1200, step: 5, uids: uids })
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (gen !== trackGen || !d || !d.tracks) return;
+      var keep = new Set(uids);
+      trackCache.forEach(function (_, k) { if (!keep.has(k)) trackCache.delete(k); });
+      d.tracks.forEach(function (tr) {
+        tr.t0 = d.time; tr.step = d.step;
+        trackCache.set(tr.uid, tr);
+      });
+    }).catch(function () {}).then(function () { trackFetching = false; });
+  }
+
   // 跟随的车次拖到「不在途」时刻时，普通 trains 列表已没有它，单独取精确位置让视角继续跟随
   function fetchSelectedState(ms) {
     if (!selectedId || !followTrain) return;
@@ -830,7 +893,7 @@ button,input{font-family:inherit}
     }
     if (wait <= 0) run(); else fetchTimer = setTimeout(run, wait);
   }
-  function setTime(m, fromUser, align5) {
+  function setTime(m, fromUser, align5, playbackTick) {
     minutes = ((m % 1440) + 1440) % 1440;
     if (align5) minutes = Math.floor(minutes * 12 + 1e-6) / 12;   // 对齐到 5 秒
     $('timeRange').value = minutes;
@@ -844,6 +907,7 @@ button,input{font-family:inherit}
     }
     if (fromUser) {
       if (liveTimer) stopLive();
+      if (!playbackTick) clearTracks();   // 拖动时间轴 / 改日期时旧轨道窗口失效
       // 固定节流窗口：不能每次都 clearTimeout，否则高帧率下 hash 永远写不出去
       if (!hashTimer) hashTimer = setTimeout(function () { hashTimer = null; writeHash(); }, 150);
       if (followTrain) {
@@ -854,13 +918,14 @@ button,input{font-family:inherit}
     }
   }
   $('timeRange').addEventListener('input', function () { setTime(+this.value, true); });
-  $('mapDate').onchange = function () { dateStr = this.value; $('replayDate').value = dateStr; stopLive(); writeHash(); fetchTrains(); };
+  $('mapDate').onchange = function () { dateStr = this.value; $('replayDate').value = dateStr; stopLive(); clearTracks(); writeHash(); fetchTrains(); };
   function startLive() {
     stopLive();
     if (playing) stopPlay();                  // 必须真正停掉播放，否则时钟马上又被推走
     followTrain = false;                      // “现在”是回到当前时刻，不应继续锁在某一趟车上
     var fb = $('followBtn'); if (fb) fb.classList.remove('on');
     clearTimeout(fetchTimer); fetchTimer = null; nextFetchAt = 0;
+    clearTracks();
     var now = new Date(Date.now() + 8 * 3600e3);
     dateStr = now.toISOString().slice(0, 10);
     $('mapDate').value = dateStr; $('replayDate').value = dateStr;
@@ -893,7 +958,7 @@ button,input{font-family:inherit}
       var dt = Math.min(100, ts - playLast);       // 单帧最多补 100ms，防止切后台跳变
       playLast = ts;
       // 每帧连续推进模拟时间，不再“攒够 5 秒才动一下”，时钟和车头同步走
-      setTime(minutes + (dt * speed * 5 / 1000) / 60, true);
+      setTime(minutes + (dt * speed * 5 / 1000) / 60, true, false, true);
       playRaf = requestAnimationFrame(frame);
     }
     playRaf = requestAnimationFrame(frame);

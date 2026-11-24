@@ -1437,6 +1437,38 @@ app.get('/api/rp/state', async (req, res) => {
   }
 });
 
+// 批量轨道回放：给视野内车次返回未来一段时间的精确位置序列，前端按时间在轨道点之间插值
+app.post('/api/rp/playback', express.json({ limit: '512kb' }), async (req, res) => {
+  try {
+    const model = await getRpModel();
+    const body = req.body || {};
+    const t = Number(body.t);
+    const ms = isFinite(t) && t > 0 ? t : Date.now();
+    const span = Math.max(60, Math.min(1800, Number(body.span) || 900));       // 秒
+    const step = Math.max(2, Math.min(15, Number(body.step) || 5));          // 秒
+    const uids = Array.isArray(body.uids) ? body.uids.slice(0, 320) : [];
+    const runs = model.activeRuns(ms);
+    const byUid = new Map(runs.map((r) => [r.t.code + '@' + r.t.ti + '@' + r.day, r]));
+    const tracks = [];
+    const n = Math.floor(span / step) + 1;
+    for (const uid of uids) {
+      const r = byUid.get(uid);
+      if (!r) continue;
+      const lats = [], lons = [];
+      for (let k = 0; k < n; k++) {
+        const s = model.state(r.t, r.rel + (k * step) / 60);
+        if (!s) break;
+        lats.push(+s.lat.toFixed(5));
+        lons.push(+s.lon.toFixed(5));
+      }
+      if (lats.length > 1) tracks.push({ uid: uid, lats: lats, lons: lons });
+    }
+    res.set('Cache-Control', 'no-store').json({ time: ms, step: step, span: span, tracks: tracks });
+  } catch (err) {
+    res.status(502).json({ status: 1, error: '轨道回放数据加载失败', detail: err.message });
+  }
+});
+
 app.get('/api/rp/lines', async (req, res) => {
   try {
     const model = await getRpModel();
