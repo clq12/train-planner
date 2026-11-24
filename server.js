@@ -1439,7 +1439,12 @@ app.get('/api/rp/train/:code', async (req, res) => {
     if (!t) return res.status(404).json({ status: 1, error: '未找到该车次' });
     const dayNum = req.query.date ? dayNumOfLocal(String(req.query.date)) : null;
     const todayNum = Math.floor((Date.now() + 8 * 3600000) / 86400000);
-    res.json({ id: code, cls: t.cls, date: req.query.date || null, stops: model.stops(t, dayNum || todayNum) });
+    const day = dayNum || todayNum;
+    const stops = model.stops(t, day).map((s, k) => {
+      const st = model.stations[t.st[k]];
+      return { ...s, lat: st ? st.lat : null, lon: st ? st.lon : null };
+    });
+    res.json({ id: code, cls: t.cls, date: req.query.date || null, path: model.routeCoords(t), stops });
   } catch (err) {
     res.status(502).json({ status: 1, error: '车次详情加载失败', detail: err.message });
   }

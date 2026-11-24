@@ -47,6 +47,25 @@ button,input{font-family:inherit}
 .detail .stop{padding:3px 0;color:var(--text2)}
 .detail .stop.here{color:var(--accent);font-weight:700}
 .detail .yp{display:inline-block;margin-top:10px;padding:6px 9px;border-radius:7px;background:rgba(15,118,110,.1);color:var(--accent);text-decoration:none;font-size:.9em}
+.detail{width:352px}
+.detail .tabs2{display:flex;gap:4px;margin:10px 0 8px;border-bottom:1px solid var(--border)}
+.detail .tabs2 button{border:0;background:none;padding:6px 10px;font-size:.85em;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent}
+.detail .tabs2 button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+.detail table{width:100%;border-collapse:collapse;font-size:.9em}
+.detail th{position:sticky;top:0;background:var(--card);color:var(--text3);font-weight:600;text-align:left;padding:5px 4px;border-bottom:1px solid var(--border)}
+.detail td{padding:5px 4px;border-bottom:1px dashed var(--border);white-space:nowrap}
+.detail td.num{text-align:right;font-variant-numeric:tabular-nums}
+.detail tr.cur{background:rgba(245,158,11,.16);font-weight:700}
+.detail tr.next{background:rgba(15,118,110,.10)}
+.detail tr.past{color:var(--text3)}
+.detail td a{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--border)}
+.detail .chart{width:100%;height:250px;overflow:auto;background:var(--bg);border-radius:8px}
+.detail .chart svg{display:block}
+.detail .tools{display:flex;gap:6px;margin-top:8px}
+.detail .tools button{flex:1;border:1px solid var(--border);background:var(--bg);border-radius:7px;padding:6px 4px;font-size:.85em;cursor:pointer;color:var(--text2)}
+.detail .tools button:hover{border-color:var(--accent);color:var(--accent)}
+.controls select{border:1px solid var(--border);border-radius:8px;padding:6px 6px;font-size:.78em;background:var(--bg);color:var(--text);outline:none}
+.sta-label{color:var(--accent);font-size:10px;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px #fff,0 0 3px #fff;pointer-events:none}
 .legend{position:absolute;left:12px;bottom:24px;background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:10px;padding:8px 10px;z-index:1000;font-size:.7em;box-shadow:var(--shadow);max-width:300px}
 .legend .row{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:5px}
 .legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px}
@@ -91,6 +110,13 @@ button,input{font-family:inherit}
   <input type="range" id="timeRange" min="0" max="1439" step="1" value="480">
   <span class="clock" id="clock">08:00</span>
   <button class="btn" id="playBtn" title="按分钟播放">▶ 播放</button>
+  <select id="speedSel" title="播放速度">
+    <option value="1600">0.5×</option>
+    <option value="800" selected>1×</option>
+    <option value="400">2×</option>
+    <option value="200">4×</option>
+    <option value="100">8×</option>
+  </select>
   <button class="btn" id="nowBtn" title="回到当前时刻并自动刷新">现在</button>
   <input type="text" id="search" placeholder="车次 / 车站，如 G1、福州" autocomplete="off">
   <div class="chips" id="typeChips"></div>
@@ -198,10 +224,13 @@ button,input{font-family:inherit}
   var tileLayers = [], railLayer = null, railVisible = true;
   var trainRenderer = L.canvas({ padding: .25 }), stationRenderer = L.canvas({ padding: .2 });
   var trainLayer = L.layerGroup().addTo(map), labelLayer = L.layerGroup().addTo(map), stationLayer = L.layerGroup().addTo(map);
+  var routeLayer = L.layerGroup().addTo(map), focusLayer = L.layerGroup().addTo(map);
   var trains = [], trainById = new Map(), markers = new Map(), stations = [], selectedId = null;
   var query = '', activeTypes = {}, labelsOn = false, stationsOn = true;
   var minutes = init.minutes, dateStr = init.date, theme = init.theme;
   var playing = false, playTimer = null, liveTimer = null, fetchSeq = 0, debounce = null, selectedTrainCode = null;
+  var playMs = 800, animMs = 650, detailData = null, detailTab = 'table';
+  var animating = new Map(), rafId = 0, replayVisible = false;
 
   Object.keys(TYPES).forEach(function (k) { activeTypes[k] = true; });
   $('mapDate').value = dateStr;
@@ -270,7 +299,6 @@ button,input{font-family:inherit}
     var color = TYPES[typeOf(t.cls)].color;
     var p = wgs2gcj(t.lon, t.lat);
     return L.circleMarker([p[1], p[0]], {
-      renderer: trainRenderer,
       radius: isSel ? 7 : (map.getZoom() >= 8 ? 4.5 : 3.4),
       color: isSel ? '#F59E0B' : '#fff', weight: isSel ? 2.5 : .8,
       fillColor: color, fillOpacity: isSel ? 1 : .92, bubblingMouseEvents: false
@@ -279,6 +307,27 @@ button,input{font-family:inherit}
       { className: 'radar-tip', direction: 'top', offset: [0, -6] });
   }
 
+  // 位置动画：只给视野内的车做逐帧插值，视野外直接跳，避免几千个 marker 每帧重画
+  function moveMarker(m, lat, lon, animate) {
+    var to = L.latLng(lat, lon);
+    if (!animate || !map.getBounds().pad(0.1).contains(to)) {
+      animating.delete(m); m.setLatLng(to); return;
+    }
+    var from = m.getLatLng();
+    if (Math.abs(from.lat - lat) < 1e-9 && Math.abs(from.lng - lon) < 1e-9) return;
+    animating.set(m, { from: from, to: to, start: performance.now(), dur: animMs });
+  }
+  function animateTick(ts) {
+    animating.forEach(function (a, m) {
+      var p = Math.min(1, (ts - a.start) / a.dur);
+      var e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      m.setLatLng([a.from.lat + (a.to.lat - a.from.lat) * e, a.from.lng + (a.to.lng - a.from.lng) * e]);
+      if (p >= 1) animating.delete(m);
+    });
+    rafId = requestAnimationFrame(animateTick);
+  }
+  rafId = requestAnimationFrame(animateTick);
+
   function renderTrains(list, timeMs) {
     var seen = new Set();
     for (var i = 0; i < list.length; i++) {
@@ -286,14 +335,20 @@ button,input{font-family:inherit}
       if (!isFinite(t.lat) || !isFinite(t.lon)) continue;
       seen.add(t.id); trainById.set(t.id, t);
       var m = markers.get(t.id);
-      if (m) m.setLatLng(wgs2gcj(t.lon, t.lat).slice().reverse());
-      else { m = iconFor(t, t.id === selectedId); m.on('click', function () { selectTrain(this._tid); }); m._tid = t.id; markers.set(t.id, m); }
+      var p = wgs2gcj(t.lon, t.lat);
+      if (m) moveMarker(m, p[1], p[0], true);
+      else {
+        m = iconFor(t, t.id === selectedId);
+        m.on('click', function () { selectTrain(this._tid); });
+        m._tid = t.id; markers.set(t.id, m);
+      }
       if (matches(t)) { if (!trainLayer.hasLayer(m)) trainLayer.addLayer(m); }
       else if (trainLayer.hasLayer(m)) trainLayer.removeLayer(m);
     }
     markers.forEach(function (m, id) { if (!seen.has(id)) { trainLayer.removeLayer(m); markers.delete(id); } });
     trains = list;
     drawLabels();
+    if (selectedId) updateFocusMarker();
     var st = $('status'); st.classList.remove('warn');
     st.textContent = '● ' + list.length + ' 列在途 · ' + clockText(minutes);
   }
@@ -324,9 +379,131 @@ button,input{font-family:inherit}
     map.on(ev, function () { if (labelsOn) drawLabels(); if (railLayer) railLayer.setStyle(lineStyle()); writeHash(); });
   });
 
+  function beijingHM(ms) {
+    if (ms == null) return '';
+    var d = new Date(ms + 8 * 3600000);
+    return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+  }
+
+  function clearRoute() { routeLayer.clearLayers(); focusLayer.clearLayers(); }
+
+  function updateFocusMarker() {
+    focusLayer.clearLayers();
+    var t = trainById.get(selectedId);
+    if (!t) return;
+    var q = wgs2gcj(t.lon, t.lat);
+    var arrow = '<svg width="22" height="22" viewBox="0 0 22 22" style="transform:rotate(' + (t.bearing || 0) + 'deg)">' +
+      '<path d="M11 1 L17 19 L11 15 L5 19 Z" fill="#F59E0B" stroke="#fff" stroke-width="1.5"/></svg>';
+    L.marker([q[1], q[0]], {
+      interactive: false,
+      icon: L.divIcon({ className: '', html: arrow, iconSize: [22, 22], iconAnchor: [11, 11] })
+    }).addTo(focusLayer);
+  }
+
+  function drawRoute() {
+    clearRoute();
+    if (!detailData) return;
+    var path = detailData.path || [];
+    if (path.length > 1) {
+      var pts = path.map(function (p) { var q = wgs2gcj(p[0], p[1]); return [q[1], q[0]]; });
+      L.polyline(pts, { renderer: L.canvas(), color: '#FFFFFF', weight: 10, opacity: .8, interactive: false }).addTo(routeLayer);
+      L.polyline(pts, { renderer: L.canvas(), color: '#E11D48', weight: 5, opacity: .95, interactive: false }).addTo(routeLayer);
+    }
+    (detailData.stops || []).forEach(function (s) {
+      if (s.lat == null || s.lon == null) return;
+      var q = wgs2gcj(s.lon, s.lat);
+      L.circleMarker([q[1], q[0]], {
+        radius: 5, color: '#fff', weight: 2, fillColor: '#E11D48', fillOpacity: 1
+      }).bindTooltip(esc(s.name), { direction: 'top' }).addTo(routeLayer);
+      if (map.getZoom() >= 8) {
+        L.marker([q[1], q[0]], {
+          interactive: false,
+          icon: L.divIcon({ className: '', html: '<span class="sta-label">' + esc(s.name) + '</span>', iconSize: [0, 0], iconAnchor: [0, 0] })
+        }).addTo(routeLayer);
+      }
+    });
+    updateFocusMarker();
+  }
+
+  function renderTable() {
+    var t = trainById.get(selectedId), stops = (detailData && detailData.stops) || [];
+    if (!stops.length) return '<div style="padding:12px;color:var(--text2)">暂无停站数据</div>';
+    var now = timeToMs(dateStr, minutes);
+    var html = '<table><thead><tr><th>车站</th><th class="num">到</th><th class="num">发</th><th class="num">停</th></tr></thead><tbody>';
+    stops.forEach(function (s, i) {
+      var cls = s.name === t.from ? 'cur' : (s.name === t.to ? 'next' : (s.dep && s.dep < now ? 'past' : ''));
+      var dwell = (s.arr != null && s.dep != null) ? Math.round((s.dep - s.arr) / 60000) : 0;
+      html += '<tr class="' + cls + '"><td><a data-stop="' + i + '">' + esc(s.name) + '</a></td>' +
+        '<td class="num">' + beijingHM(s.arr) + '</td><td class="num">' + beijingHM(s.dep) + '</td>' +
+        '<td class="num">' + (dwell || '') + '</td></tr>';
+    });
+    return html + '</tbody></table>';
+  }
+
+  function renderChart() {
+    var stops = (detailData && detailData.stops) || [];
+    if (!stops.length) return '<div style="padding:12px;color:var(--text2)">暂无运行图数据</div>';
+    var t0 = stops[0].dep || stops[0].arr;
+    var t1 = stops[stops.length - 1].arr || stops[stops.length - 1].dep;
+    if (t0 == null || t1 == null || t1 <= t0) t1 = (t0 || Date.now()) + 3600000;
+    var gap = 24, H = stops.length * gap + 44, W = 320;
+    var X = function (v) { return 52 + (v - t0) / (t1 - t0) * 248; };
+    var s = '<div class="chart"><svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
+    s += '<text x="52" y="11" font-size="10" fill="#8CA8B2">' + beijingHM(t0) + '</text>' +
+      '<text x="272" y="11" font-size="10" fill="#8CA8B2">' + beijingHM(t1) + '</text>';
+    stops.forEach(function (st, i) {
+      var y = 32 + i * gap, a = st.arr != null ? X(st.arr) : null, d = st.dep != null ? X(st.dep) : null;
+      s += '<text x="3" y="' + (y + 3) + '" font-size="10" fill="#54727D">' + esc(st.name) + '</text>' +
+        '<line x1="46" y1="' + y + '" x2="306" y2="' + y + '" stroke="#E2E8F0"/>';
+      if (a != null && d != null && d > a) s += '<line x1="' + a + '" y1="' + y + '" x2="' + d + '" y2="' + y + '" stroke="#0F766E" stroke-width="4" stroke-linecap="round"/>';
+      else if (d != null) s += '<circle cx="' + d + '" cy="' + y + '" r="3" fill="#0F766E"/>';
+      if (i > 0) {
+        var pd = stops[i - 1].dep != null ? X(stops[i - 1].dep) : null;
+        if (pd != null && a != null) s += '<line x1="' + pd + '" y1="' + (y - gap) + '" x2="' + a + '" y2="' + y + '" stroke="#0F766E" stroke-width="2"/>';
+      }
+    });
+    var now = timeToMs(dateStr, minutes);
+    if (now >= t0 && now <= t1) {
+      var nx = X(now);
+      s += '<line x1="' + nx + '" y1="18" x2="' + nx + '" y2="' + (H - 8) + '" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="4 3"/>' +
+        '<text x="' + (nx + 3) + '" y="24" font-size="10" fill="#DC2626">现在</text>';
+    }
+    return s + '</svg></div>';
+  }
+
+  function renderPanel() {
+    var t = trainById.get(selectedId); if (!t) return;
+    var box = $('detail');
+    box.innerHTML = '<button class="close" id="detailClose">✕</button><h3>🚄 ' + esc(t.id) +
+      ' <small style="font-size:.7em;color:var(--text3)">' + esc(t.cls) + '</small></h3>' +
+      '<div class="kv"><span>当前 / 下一站</span><b>' + esc(t.from) + ' → ' + esc(t.to) + '</b></div>' +
+      '<div class="kv"><span>状态</span><b>' + (t.moving ? t.speed + ' km/h' : '停站中') + '</b></div>' +
+      '<div class="tabs2"><button data-tab="table" class="' + (detailTab === 'table' ? 'on' : '') + '">时刻表</button>' +
+      '<button data-tab="chart" class="' + (detailTab === 'chart' ? 'on' : '') + '">运行图</button></div>' +
+      '<div id="detailBody">' + (detailTab === 'chart' ? renderChart() : renderTable()) + '</div>' +
+      '<div class="tools"><button id="fitRoute">全程视野</button><button id="openYupiao">余票看这趟车</button></div>';
+    $('detailClose').onclick = closeDetail;
+    Array.prototype.forEach.call(box.querySelectorAll('.tabs2 button'), function (b) {
+      b.onclick = function () { detailTab = b.dataset.tab; renderPanel(); };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('#detailBody a[data-stop]'), function (a) {
+      a.onclick = function () {
+        var st = (detailData && detailData.stops || [])[+a.dataset.stop]; if (!st) return;
+        var ms = st.arr != null ? st.arr : st.dep;
+        if (ms != null) { var d = new Date(ms + 8 * 3600000); setTime(d.getUTCHours() * 60 + d.getUTCMinutes(), true); }
+        if (st.lat != null) { var q = wgs2gcj(st.lon, st.lat); map.flyTo([q[1], q[0]], Math.max(map.getZoom(), 9), { duration: .6 }); }
+      };
+    });
+    $('fitRoute').onclick = function () {
+      var pts = ((detailData && detailData.path) || []).map(function (p) { var q = wgs2gcj(p[0], p[1]); return [q[1], q[0]]; });
+      if (pts.length) map.flyToBounds(pts, { padding: [60, 60], maxZoom: 10, duration: .8 });
+    };
+    $('openYupiao').onclick = function () { openReplayFor(t.id); };
+  }
+
   function selectTrain(id) {
     var t = trainById.get(id); if (!t) return;
-    selectedId = id; selectedTrainCode = id;
+    selectedId = id; selectedTrainCode = id; detailData = null; detailTab = 'table';
     markers.forEach(function (m, key) {
       var sel = key === id;
       m.setStyle({ color: sel ? '#F59E0B' : '#fff', weight: sel ? 2.5 : .8, fillOpacity: sel ? 1 : .92 });
@@ -334,27 +511,17 @@ button,input{font-family:inherit}
     });
     var p = wgs2gcj(t.lon, t.lat);
     if (!map.getBounds().contains([p[1], p[0]])) map.panTo([p[1], p[0]]);
-    var box = $('detail'); box.style.display = '';
-    box.innerHTML = '<button class="close" id="detailClose">✕</button><h3>🚄 ' + esc(id) + '</h3>' +
-      '<div class="kv"><span>区间</span><b>' + esc(t.from) + ' → ' + esc(t.to) + '</b></div>' +
-      '<div class="kv"><span>状态</span><b>' + (t.moving ? t.speed + ' km/h' : '停站中') + '</b></div>' +
-      '<div id="detailStops" style="margin-top:8px;color:var(--text2)">读取停站中…</div>' +
-      '<a class="yp" id="openYupiao" href="#">↗ 在余票地图上看这趟车</a>';
-    $('detailClose').onclick = closeDetail;
-    $('openYupiao').onclick = function (e) { e.preventDefault(); openReplayFor(id); };
+    $('detail').style.display = '';
+    renderPanel(); updateFocusMarker();
     fetch(API + '/train/' + encodeURIComponent(id) + '?date=' + dateStr)
       .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var el = $('detailStops'); if (!el) return;
-        var stops = (d && d.stops) || [];
-        if (!stops.length) { el.textContent = '暂无停站数据'; return; }
-        el.innerHTML = '<div class="stops">' + stops.map(function (s) {
-          var hit = s.name === t.from || s.name === t.to;
-          return '<div class="stop' + (hit ? ' here' : '') + '">' + esc(s.name) + '</div>';
-        }).join('') + '</div>';
-      }).catch(function () { var el = $('detailStops'); if (el) el.textContent = '停站数据暂不可用'; });
+      .then(function (d) { if (selectedId !== id) return; detailData = d; drawRoute(); renderPanel(); })
+      .catch(function () {});
   }
-  function closeDetail() { selectedId = null; selectedTrainCode = null; $('detail').style.display = 'none'; applyFilter(); }
+  function closeDetail() {
+    selectedId = null; selectedTrainCode = null; detailData = null;
+    $('detail').style.display = 'none'; clearRoute(); applyFilter();
+  }
   map.on('click', function () { if (selectedId) closeDetail(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && selectedId) closeDetail(); });
 
@@ -406,12 +573,20 @@ button,input{font-family:inherit}
     $('modeBadge').textContent = '时刻推算';
   }
   $('nowBtn').onclick = startLive;
+  function startPlay() {
+    stopLive();
+    playTimer = setInterval(function () { setTime(minutes + 1, true); }, playMs);
+  }
   $('playBtn').onclick = function () {
     playing = !playing;
     this.textContent = playing ? '⏸ 暂停' : '▶ 播放';
     this.classList.toggle('on', playing);
-    if (playing) { stopLive(); playTimer = setInterval(function () { setTime(minutes + 1, true); }, 700); }
-    else clearInterval(playTimer);
+    if (playing) startPlay(); else clearInterval(playTimer);
+  };
+  $('speedSel').onchange = function () {
+    playMs = +this.value;
+    animMs = Math.min(650, Math.round(playMs * 0.85));
+    if (playing) { clearInterval(playTimer); startPlay(); }
   };
   $('refreshBtn') && ($('refreshBtn').onclick = fetchTrains);
 
@@ -467,13 +642,20 @@ button,input{font-family:inherit}
     $('map').style.visibility = 'hidden';
     $('replayWrap').style.display = 'flex';
     $('modeReplay').classList.add('on');
+    $('modeReplay').textContent = '返回地图';
+    replayVisible = true;
   }
-  $('modeReplay').onclick = function () { openReplayFor(selectedTrainCode); };
   function closeReplay() {
     $('replayWrap').style.display = 'none'; $('map').style.visibility = 'visible';
     $('controls').style.display = ''; $('legend').style.display = '';
     $('modeReplay').classList.remove('on');
+    $('modeReplay').textContent = '余票回放';
+    replayVisible = false;
+    map.invalidateSize();
   }
+  $('modeReplay').onclick = function () {
+    if (replayVisible) closeReplay(); else openReplayFor(selectedTrainCode);
+  };
   $('syncView').onclick = function () { $('replayFrame').src = replayUrl(selectedTrainCode); };
   $('replayTime').onchange = function () {
     var p = this.value.split(':'); if (p.length === 2) setTime((+p[0]) * 60 + (+p[1]), true);
