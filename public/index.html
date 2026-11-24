@@ -1014,7 +1014,7 @@ async function doSearch() {
     const resp = await fetch(`/api/ticket?from=${fromCode}&to=${toCode}&date=${date}${cityParam()}`);
     const data = await resp.json();
 
-    if (data.status === 0 && data.data) {
+    if (data.status === 0 && Array.isArray(data.data) && data.data.length > 0) {
       currentTrains = data.data;
       currentTrainSearchDate = date;
       const availCount = data.availableCount || 0;
@@ -1053,13 +1053,22 @@ async function doSearch() {
       setTimeout(hideProgress, 800);
     } else {
       hideProgress();
+      currentTrains = [];
+      document.getElementById('statsBar').style.display = 'none';
+      document.getElementById('sortFilterPanel').style.display = 'none';
+      const reason = data.emptyReason || data.error || '12306 没有返回这天的车次，请稍后重试';
       document.getElementById('trainList').innerHTML =
-        `<div class="empty-state"><div class="icon">😕</div><h3>未查到车次</h3><p>${data.error||'请检查站点和日期'}</p></div>`;
+        `<div class="empty-state"><div class="icon">😕</div><h3>未查到车次</h3>
+          <p>${escapeHTML(reason)}</p>
+          <p style="color:var(--text2);font-size:.82em;margin-top:6px">${escapeHTML(fromName)} → ${escapeHTML(toName)} · ${escapeHTML(date)}</p>
+          <button class="btn" style="margin-top:12px" onclick="doSearch()">重新查询</button>
+        </div>`;
     }
   } catch (e) {
     hideProgress();
     document.getElementById('trainList').innerHTML =
-      `<div class="empty-state"><div class="icon">⚠️</div><h3>查询失败</h3><p>${e.message}</p></div>`;
+      `<div class="empty-state"><div class="icon">⚠️</div><h3>查询失败</h3><p>${escapeHTML(e.message)}</p>
+        <button class="btn" style="margin-top:12px" onclick="doSearch()">重新查询</button></div>`;
   }
 
   btn.disabled = false; btn.textContent = '🔍 查询';

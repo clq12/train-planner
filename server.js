@@ -366,6 +366,24 @@ app.get('/api/ticket', async (req, res) => {
   if (!from || !to || !date) {
     return res.status(400).json({ status: 1, error: '缺少参数: from, to, date' });
   }
+  // 先挡住明显错误/超出预售期的日期，避免 12306 返回空数组后被误显示成「0 结果」
+  const dparts = String(date).split('-').map(Number);
+  if (dparts.length !== 3 || dparts.some((n) => !Number.isFinite(n))) {
+    return res.status(400).json({ status: 1, error: '日期格式应为 YYYY-MM-DD', queryDate: date });
+  }
+  const queryDay = Date.UTC(dparts[0], dparts[1] - 1, dparts[2]);
+  const nowBJ = new Date(Date.now() + 8 * 3600000);
+  const todayDay = Date.UTC(nowBJ.getUTCFullYear(), nowBJ.getUTCMonth(), nowBJ.getUTCDate());
+  const diffDays = Math.round((queryDay - todayDay) / 86400000);
+  if (diffDays < 0 || diffDays > 15) {
+    const minDate = new Date(todayDay).toISOString().slice(0, 10);
+    const maxDate = new Date(todayDay + 15 * 86400000).toISOString().slice(0, 10);
+    return res.status(400).json({
+      status: 1,
+      error: '12306 当前预售期为 ' + minDate + ' 至 ' + maxDate + '，' + date + ' 不在可售日期内',
+      queryDate: date, minDate, maxDate,
+    });
+  }
 
   // 「市内出发」：把这个城市（地级市）所有车站的余票合并返回
   if (req.query.cityFrom === '1') {
@@ -401,6 +419,7 @@ app.get('/api/ticket', async (req, res) => {
         availableCount: available.length,
         totalCount: merged.length,
         cityFrom: limited.map(s => s.name),
+        queryDate: date,
       });
     }
   }
@@ -408,7 +427,16 @@ app.get('/api/ticket', async (req, res) => {
   // 命中缓存直接返回（多策略会反复查同一个区间）
   const cachedTicket = cacheGet(from, to, date);
   if (cachedTicket) {
-    return res.json(cachedTicket);
+    // fetchTicketsRaw 给换乘用的缓存只有 data，没有统计字段；这里补齐，避免前端显示 0 有票
+    const list = Array.isArray(cachedTicket.data) ? cachedTicket.data : [];
+    const available = list.filter(t => t.canBuy && hasTicketFn(t));
+    return res.json({
+      status: 0,
+      data: list,
+      availableCount: available.length,
+      totalCount: list.length,
+      queryDate: date,
+    });
   }
 
   // 正在冷却期就直接返回，避免排长队干等（策略会并发发很多请求）
@@ -514,7 +542,7 @@ app.get('/api/ticket', async (req, res) => {
           const available = parsed.filter(t => t.canBuy && hasTicketFn(t));
           const allCount = parsed.length;
           console.log(`✅ Ticket query OK: ${allCount} trains, ${available.length} with tickets (${from}→${to})`);
-          const payload = { status: 0, data: parsed, availableCount: available.length, totalCount: allCount };
+          const payload = { status: 0, data: parsed, availableCount: available.length, totalCount: allCount, queryDate: date };
           cacheSet(from, to, date, payload);
           return res.json(payload);
         } catch (parseErr) {
@@ -524,9 +552,18 @@ app.get('/api/ticket', async (req, res) => {
         }
       }
 
-      // 返回了200但没有数据
+      // 返回了200但没有数据：可能是瞬时限流/空响应，刷新 cookie 后再试一次
       if (resultArr && resultArr.length === 0) {
-        return res.json({ status: 0, data: [], availableCount: 0, totalCount: 0 });
+        lastErr = '12306 返回 0 班（可能瞬时限流或该日期暂无车次）';
+        if (attempt + 1 < maxRetries) {
+          await forceRefreshCookies();
+          await new Promise(r => setTimeout(r, 800));
+          continue;
+        }
+        return res.json({
+          status: 0, data: [], availableCount: 0, totalCount: 0,
+          queryDate: date, emptyReason: lastErr,
+        });
       }
 
       // data.data 不存在或为 null
