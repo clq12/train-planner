@@ -117,9 +117,14 @@ button,input{font-family:inherit}
   <input type="range" id="timeRange" min="0" max="1439.9167" step="0.0833333" value="480">
   <span class="clock" id="clock">08:00:00</span>
   <button class="btn" id="playBtn" title="按 5 秒步进播放">▶ 播放</button>
-  <span class="speed-wrap" title="播放速度：1× 每秒走 5 秒，120× 每秒走 10 分钟">
+  <span class="speed-wrap" title="播放速度：1/2/3/4/5/10/20/50/100/120×，1× 每秒走 5 秒，120× 每秒走 10 分钟">
     <span class="speed-cap">速度</span>
-    <input type="range" id="speedRange" min="1" max="120" step="1" value="1">
+    <input type="range" id="speedRange" min="0" max="9" step="1" value="0" list="speedTicks">
+    <datalist id="speedTicks">
+      <option value="0"></option><option value="1"></option><option value="2"></option><option value="3"></option>
+      <option value="4"></option><option value="5"></option><option value="6"></option><option value="7"></option>
+      <option value="8"></option><option value="9"></option>
+    </datalist>
     <span class="speed-val" id="speedVal">1×</span>
   </span>
   <button class="btn" id="nowBtn" title="回到当前时刻并自动刷新">现在</button>
@@ -766,8 +771,9 @@ button,input{font-family:inherit}
     this.classList.add('on');
     startPlay();
   };
+  var SPEED_STEPS = [1, 2, 3, 4, 5, 10, 20, 50, 100, 120];
   function applySpeed() {
-    speed = +$('speedRange').value;
+    speed = SPEED_STEPS[+$('speedRange').value] || 1;
     playMs = 1000 / speed;                          // 一个 5 秒步长的真实耗时
     animMs = Math.min(650, Math.round(playMs * 0.85));
     $('speedVal').textContent = speed + '×';
