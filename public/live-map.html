@@ -67,12 +67,16 @@ button,input{font-family:inherit}
 .detail .tools{display:flex;gap:6px;margin-top:8px}
 .detail .tools button{flex:1;border:1px solid var(--border);background:var(--bg);border-radius:7px;padding:6px 4px;font-size:.85em;cursor:pointer;color:var(--text2)}
 .detail .tools button:hover{border-color:var(--accent);color:var(--accent)}
+.detail .tools button.follow-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:0 0 auto;padding:3px 8px}
+.detail .tools button.follow-btn svg{width:28px;height:22px;flex:0 0 28px}
+.detail .tools button.follow-btn.on{border-color:var(--accent);background:rgba(15,118,110,.12);color:var(--accent)}
 .controls select{border:1px solid var(--border);border-radius:8px;padding:6px 6px;font-size:.78em;background:var(--bg);color:var(--text);outline:none}
 .speed-wrap{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}
 .speed-cap{font-size:.72em;color:var(--text2);white-space:nowrap}
 .speed-wrap input[type=range]{width:118px;accent-color:var(--accent);margin:0}
 .speed-val{font-size:.78em;font-weight:600;color:var(--accent);min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
-.rate-label{font-size:.74em;color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;padding:2px 6px;background:rgba(15,118,110,.08);border-radius:6px}
+/* 固定宽度，字数变多时靠 JS 调小字号，避免控制栏换行跳动 */
+.rate-label{display:inline-flex;align-items:center;justify-content:center;flex:0 0 104px;width:104px;height:26px;box-sizing:border-box;color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 4px;background:rgba(15,118,110,.08);border-radius:6px;line-height:1}
 .sta-label{color:var(--accent);font-size:10px;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px #fff,0 0 3px #fff;pointer-events:none}
 .legend{position:absolute;left:12px;bottom:24px;background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:10px;padding:8px 10px;z-index:1000;font-size:.7em;box-shadow:var(--shadow);max-width:300px}
 .legend .row{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:5px}
@@ -281,6 +285,7 @@ button,input{font-family:inherit}
   // 播放：速度 N× = 每真实秒推进 N 个 5 秒步长（1×=5秒/秒，120×=10分钟/秒）
   var speed = 1, playMs = 1000, animMs = 650, playRaf = 0, playLast = 0, playCarry = 0;
   var hashTimer = null, detailData = null, detailTab = 'table';
+  var followTrain = false;   // 视角跟随：地图中心跟随选中车次移动
   var animating = new Map(), rafId = 0, replayVisible = false;
 
   Object.keys(TYPES).forEach(function (k) { activeTypes[k] = true; });
@@ -460,6 +465,12 @@ button,input{font-family:inherit}
       interactive: false,
       icon: L.divIcon({ className: '', html: arrow, iconSize: [22, 22], iconAnchor: [11, 11] })
     }).addTo(focusLayer);
+    if (followTrain) map.setView([q[1], q[0]], map.getZoom(), { animate: false });
+  }
+  function centerOnSelected() {
+    var t = trainById.get(selectedId); if (!t) return;
+    var q = wgs2gcj(t.lon, t.lat);
+    map.setView([q[1], q[0]], map.getZoom(), { animate: false });
   }
 
   function drawRoute() {
@@ -567,7 +578,12 @@ button,input{font-family:inherit}
       '<div class="tabs2"><button data-tab="table" class="' + (detailTab === 'table' ? 'on' : '') + '">时刻表</button>' +
       '<button data-tab="chart" class="' + (detailTab === 'chart' ? 'on' : '') + '">运行图</button></div>' +
       '<div id="detailBody">' + (detailTab === 'chart' ? renderChart() : renderTable()) + '</div>' +
-      '<div class="tools"><button id="fitRoute">全程视野</button><button id="openYupiao">余票看这趟车</button></div>';
+      '<div class="tools"><button id="fitRoute">全程视野</button>' +
+      '<button id="followBtn" class="follow-btn' + (followTrain ? ' on' : '') + '" title="视角跟随：地图随这趟车移动">' +
+      '<svg width="28" height="22" viewBox="0 0 28 22"><circle cx="14" cy="11" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+      '<circle cx="14" cy="11" r="2.2" fill="currentColor"/><path d="M14 0v4M14 18v4M0 11h4M24 11h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>' +
+      '视角跟随</button>' +
+      '<button id="openYupiao">余票看这趟车</button></div>';
     $('detailClose').onclick = closeDetail;
     Array.prototype.forEach.call(box.querySelectorAll('.tabs2 button'), function (b) {
       b.onclick = function () { detailTab = b.dataset.tab; renderPanel(); };
@@ -576,6 +592,11 @@ button,input{font-family:inherit}
     $('fitRoute').onclick = function () {
       var pts = ((detailData && detailData.path) || []).map(function (p) { var q = wgs2gcj(p[0], p[1]); return [q[1], q[0]]; });
       if (pts.length) map.flyToBounds(pts, { padding: [60, 60], maxZoom: 10, duration: .8 });
+    };
+    $('followBtn').onclick = function () {
+      followTrain = !followTrain;
+      this.classList.toggle('on', followTrain);
+      if (followTrain) centerOnSelected();
     };
     $('openYupiao').onclick = function () { openReplayFor(t.id); };
   }
@@ -600,7 +621,7 @@ button,input{font-family:inherit}
       .catch(function () {});
   }
   function closeDetail() {
-    selectedId = null; selectedTrainCode = null; detailData = null;
+    selectedId = null; selectedTrainCode = null; detailData = null; followTrain = false;
     // 复位所有 marker 的选中样式，避免关闭后仍有车保持橙色大圆点
     markers.forEach(function (m) {
       m.setStyle({ color: '#fff', weight: .8, fillOpacity: .92 });
@@ -806,7 +827,10 @@ button,input{font-family:inherit}
     playMs = 1000 / speed;                          // 一个 5 秒步长的真实耗时
     animMs = Math.min(650, Math.round(playMs * 0.85));
     $('speedVal').textContent = speed + '×';
-    $('rateLabel').textContent = rateText(speed);
+    var label = $('rateLabel'), txt = rateText(speed);
+    label.textContent = txt;
+    // 固定宽度内自适应字号：短文案 12px，最长「1s → 8分20秒」缩到 10px
+    label.style.fontSize = (txt.length > 11 ? 10 : txt.length > 8 ? 11 : 12) + 'px';
   }
   $('speedRange').addEventListener('input', applySpeed);
   applySpeed();
