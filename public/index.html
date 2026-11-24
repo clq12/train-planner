@@ -158,7 +158,7 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .itinerary-head span{display:block;font-size:.72em;color:var(--text2)}
 .itinerary-head button{border:1px solid var(--border);background:var(--bg);border-radius:8px;padding:7px 12px;color:var(--text2);font-size:.78em;cursor:pointer}
 .itinerary-head button:hover{border-color:var(--accent);color:var(--accent)}
-#itineraryFrame{flex:1;width:100%;border:0;background:#fff}
+#itineraryFrame,#adminFrame{flex:1;width:100%;border:0;background:#fff}
 @media(max-width:700px){.itinerary-shell{width:100vw;height:100vh;border-radius:0;border:0}}
 
 .progress-bar{margin:12px 0;display:none}.progress-bar.show{display:block}
@@ -779,6 +779,16 @@ body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
       <button type="button" onclick="closeItinerary()">✕ 关闭并返回搜索结果</button>
     </div>
     <iframe id="itineraryFrame" title="出行日程" loading="lazy"></iframe>
+  </div>
+</div>
+
+<div class="itinerary-overlay" id="adminOverlay" onclick="if(event.target===this)closeAdmin()">
+  <div class="itinerary-shell" style="width:min(760px,96vw);height:min(88vh,820px)">
+    <div class="itinerary-head">
+      <div><b>⚙️ 管理设置</b><span>保存后立即生效，关闭后回到刚才的查询结果</span></div>
+      <button type="button" onclick="closeAdmin()">✕ 关闭并返回搜索结果</button>
+    </div>
+    <iframe id="adminFrame" title="管理设置" loading="lazy"></iframe>
   </div>
 </div>
 
@@ -1442,6 +1452,41 @@ document.addEventListener('keydown', function (e) {
   if (e.key !== 'Escape') return;
   const overlay = document.getElementById('itineraryOverlay');
   if (overlay && overlay.classList.contains('show')) closeItinerary();
+});
+
+// ========== 管理设置浮层：不跳转整页，保留搜索结果 ==========
+function openAdmin() {
+  const overlay = document.getElementById('adminOverlay');
+  const frame = document.getElementById('adminFrame');
+  if (!overlay || !frame) return;
+  frame.src = '/admin?embed=1';
+  overlay.classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closeAdmin() {
+  const overlay = document.getElementById('adminOverlay');
+  if (!overlay) return;
+  overlay.classList.remove('show');
+  document.body.style.overflow = '';
+  const frame = document.getElementById('adminFrame');
+  if (frame) frame.src = 'about:blank';
+}
+document.addEventListener('click', function (e) {
+  const a = e.target.closest && e.target.closest('a[href="/admin"],a[href="/admin?embed=1"]');
+  if (!a) return;
+  let url;
+  try { url = new URL(a.href, location.href); } catch (err) { return; }
+  if (url.pathname !== '/admin') return;
+  e.preventDefault();
+  openAdmin();
+});
+window.addEventListener('message', function (e) {
+  if (e.data === 'closeAdmin') closeAdmin();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  const overlay = document.getElementById('adminOverlay');
+  if (overlay && overlay.classList.contains('show')) closeAdmin();
 });
 
 function trainCardHTML(t, idx) {

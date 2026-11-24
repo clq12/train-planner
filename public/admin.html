@@ -55,13 +55,17 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
   .ctrl{width:100%}
   input[type=range]{flex:1;width:auto}
 }
+body.embedded .wrap{padding:14px 18px 24px}
+body.embedded .head{margin-bottom:8px}
+body.embedded .head h1{font-size:1.25em}
+body.embedded .sub{margin-bottom:10px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="head">
     <h1>管理设置</h1>
-    <a class="back" href="/">← 返回查询页</a>
+    <a class="back" id="backLink" href="/">← 返回查询页</a>
   </div>
   <p class="sub">调整中转方案的检索范围。保存后立即生效，设置存在本浏览器里。</p>
 
@@ -86,6 +90,19 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
       <div class="ctrl">
         <input type="range" id="gapH" min="1" max="72" step="1" value="36">
         <span class="val" id="gapHVal">36 时</span>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+      <div class="label">
+        <b>地图专注模式</b>
+        <span>从查票页点「地图线路 / 换乘地图 / 看这两段」进入地图时，是否只显示目标车次并隐藏无关的路网与站点。关闭后仍显示全部车次。</span>
+      </div>
+      <div class="ctrl">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="focusHide" checked style="width:18px;height:18px;accent-color:#0F766E">
+          <span class="val" id="focusHideVal">开启</span>
+        </label>
       </div>
     </div>
 
@@ -119,12 +136,14 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 <script>
 (function () {
   var KEY = 'piaolu_admin';
-  var DEFAULTS = { days: 3, gapH: 36 };
+  var DEFAULTS = { days: 3, gapH: 36, focusHide: true };
 
   var daysEl = document.getElementById('days');
   var gapEl = document.getElementById('gapH');
+  var focusEl = document.getElementById('focusHide');
   var daysVal = document.getElementById('daysVal');
   var gapVal = document.getElementById('gapHVal');
+  var focusVal = document.getElementById('focusHideVal');
   var qsEl = document.getElementById('qs');
   var toast = document.getElementById('toast');
 
@@ -137,11 +156,13 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
         cfg = {
           days: clamp(o.days, 2, 7, DEFAULTS.days),
           gapH: clamp(o.gapH, 1, 72, DEFAULTS.gapH),
+          focusHide: o.focusHide === undefined ? DEFAULTS.focusHide : !!o.focusHide,
         };
       }
     } catch (e) {}
     daysEl.value = cfg.days;
     gapEl.value = cfg.gapH;
+    focusEl.checked = cfg.focusHide;
     render();
   }
 
@@ -154,6 +175,7 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
   function render() {
     daysVal.textContent = daysEl.value + ' 天';
     gapVal.textContent = gapEl.value + ' 时';
+    focusVal.textContent = focusEl.checked ? '开启' : '关闭';
     qsEl.textContent = '&days=' + daysEl.value + '&gapH=' + gapEl.value;
   }
 
@@ -165,9 +187,10 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
 
   daysEl.addEventListener('input', render);
   gapEl.addEventListener('input', render);
+  focusEl.addEventListener('change', render);
 
   document.getElementById('save').addEventListener('click', function () {
-    var cfg = { days: parseInt(daysEl.value, 10), gapH: parseInt(gapEl.value, 10) };
+    var cfg = { days: parseInt(daysEl.value, 10), gapH: parseInt(gapEl.value, 10), focusHide: focusEl.checked };
     try {
       localStorage.setItem(KEY, JSON.stringify(cfg));
       showToast('已保存，返回查询页即可生效');
@@ -183,6 +206,21 @@ button:disabled{opacity:.5;cursor:not-allowed;transform:none}
   });
 
   load();
+
+  // 嵌入主站浮层时：返回按钮改为通知外层关闭，不再整页跳转
+  if (/[?&]embed=1/.test(location.search)) {
+    document.body.classList.add('embedded');
+    var back = document.getElementById('backLink');
+    if (back) {
+      back.href = '#';
+      back.textContent = '← 关闭返回';
+      back.onclick = function (e) {
+        e.preventDefault();
+        if (window.parent && window.parent !== window) window.parent.postMessage('closeAdmin', '*');
+        else location.href = '/';
+      };
+    }
+  }
 })();
 </script>
 </body>

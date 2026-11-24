@@ -136,6 +136,7 @@ button,input{font-family:inherit}
   <label><input type="checkbox" id="showStations" checked> 站点</label>
   <label><input type="checkbox" id="showLabels"> 车次号</label>
   <button class="btn" id="fitBtn">全国</button>
+  <button class="btn" id="clearBtn" title="清除路线/换乘高亮，恢复初始状态">清除</button>
 </div>
 
 <div id="map"></div>
@@ -260,6 +261,17 @@ button,input{font-family:inherit}
   // 换乘方案线路单独一层：关闭车次详情时只清 routeLayer，不影响换乘地图的两段线路
   var transferLayer = L.layerGroup().addTo(map);
   var transferMode = false;
+  // 专注模式：进入地图线路/换乘地图时只显示相关车次，隐藏其它车次与路网/站点
+  // 是否在深链时自动开启，由管理设置 piaolu_admin.focusHide 决定（默认开启）
+  var focusCodes = [], focusMode = false;
+  function focusHideEnabled() {
+    try {
+      var raw = localStorage.getItem('piaolu_admin');
+      if (!raw) return true;
+      var o = JSON.parse(raw);
+      return o.focusHide === undefined ? true : !!o.focusHide;
+    } catch (e) { return true; }
+  }
   var trains = [], trainById = new Map(), markers = new Map(), stations = [], selectedId = null;
   var query = '', activeTypes = {}, labelsOn = false, stationsOn = true;
   var minutes = init.minutes, dateStr = init.date, theme = init.theme;
@@ -333,6 +345,7 @@ button,input{font-family:inherit}
   }
 
   function matches(t) {
+    if (focusMode && focusCodes.indexOf(t.id) < 0) return false;   // 专注模式只留目标车次
     if (!activeTypes[typeOf(t.cls)]) return false;
     if (!query) return true;
     return [t.id, t.from, t.to].join(' ').toLowerCase().indexOf(query) >= 0;
@@ -602,6 +615,8 @@ button,input{font-family:inherit}
   function openDeepLinkedTrain() {
     var code = init.train;
     if (!code) return;
+    focusCodes = [code]; focusMode = focusHideEnabled();
+    syncBaseLayers(); applyFilter();
     fetch(API + '/train/' + encodeURIComponent(code) + '?date=' + dateStr)
       .then(function (r) { return r.json(); })
       .then(function (d) {
@@ -629,6 +644,8 @@ button,input{font-family:inherit}
     var colors = ['#2563EB', '#DC2626', '#7C3AED', '#059669'];
     var viaNames = (init.via || '').split(/[\/、,，\s]+/).filter(Boolean);
     transferMode = true;
+    focusCodes = codes.slice(); focusMode = focusHideEnabled();
+    syncBaseLayers(); applyFilter();
     Promise.all(codes.map(function (code) {
       return fetch(API + '/train/' + encodeURIComponent(code) + '?date=' + dateStr)
         .then(function (r) { return r.json(); })
@@ -798,7 +815,7 @@ button,input{font-family:inherit}
   function loadLines() {
     fetch(API + '/lines').then(function (r) { return r.json(); }).then(function (d) {
       railLayer = L.geoJSON(d, { renderer: L.canvas({ padding: .2 }), interactive: false, style: lineStyle() });
-      if (railVisible) railLayer.addTo(map);
+      syncBaseLayers();
     }).catch(function () {});
   }
   function loadStations() {
@@ -811,20 +828,36 @@ button,input{font-family:inherit}
           fillColor: theme === 'satellite' ? '#A5F3FC' : '#0F766E', fillOpacity: .75, interactive: false
         }).addTo(stationLayer);
       });
-      if (!stationsOn) map.removeLayer(stationLayer);
+      syncBaseLayers();
     }).catch(function () {});
   }
-  $('showLines').onchange = function () {
-    railVisible = this.checked;
-    if (!railLayer) return;
-    if (railVisible) railLayer.addTo(map); else map.removeLayer(railLayer);
-  };
-  $('showStations').onchange = function () {
-    stationsOn = this.checked;
-    if (stationsOn) stationLayer.addTo(map); else map.removeLayer(stationLayer);
-  };
+  // 专注模式自动隐藏路网/站点/车次号，只留目标车次与高亮线路
+  function syncBaseLayers() {
+    if (railLayer) {
+      if (railVisible && !focusMode) { if (!map.hasLayer(railLayer)) railLayer.addTo(map); }
+      else if (map.hasLayer(railLayer)) map.removeLayer(railLayer);
+    }
+    if (stationsOn && !focusMode) { if (!map.hasLayer(stationLayer)) stationLayer.addTo(map); }
+    else if (map.hasLayer(stationLayer)) map.removeLayer(stationLayer);
+    if (labelsOn && !focusMode && map.getZoom() >= 7) drawLabels();
+    else labelLayer.clearLayers();
+  }
+  $('showLines').onchange = function () { railVisible = this.checked; syncBaseLayers(); };
+  $('showStations').onchange = function () { stationsOn = this.checked; syncBaseLayers(); };
   $('showLabels').onchange = function () { labelsOn = this.checked; drawLabels(); };
   $('fitBtn').onclick = function () { map.flyToBounds([[18, 73], [54, 135]], { duration: .7 }); };
+  // 清除：退出专注模式，清掉详情/高亮线路，恢复初始视图
+  $('clearBtn').onclick = function () {
+    focusMode = false; focusCodes = [];
+    transferMode = false; transferLayer.clearLayers();
+    if (selectedId) closeDetail(); else { clearRoute(); }
+    delete init.train; delete init.legs; delete init.via;
+    query = ''; $('search').value = '';
+    syncBaseLayers(); applyFilter();
+    writeHash();
+    map.flyToBounds([[18, 73], [54, 135]], { duration: .7 });
+    $('status').textContent = '● ' + trains.length + ' 列在途 · ' + clockText(minutes);
+  };
   $('search').addEventListener('input', function () {
     query = this.value.trim().toLowerCase();
     if (query.length >= 2) {
