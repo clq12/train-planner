@@ -1296,67 +1296,159 @@ app.get('/api/schedule', async (req, res) => {
   }
 });
 
-// ========== 实时地图：第三方数据代理 ==========
-// 浏览器直连第三方站点会被 CORS / X-Frame-Options 拦住，这里由服务端中转并按 TTL 缓存，
-// 同时避免每个客户端都去拉 1.9 MB 的全国路网。上游挂掉时前端会降级到内置数据。
-const LIVE_RADAR = 'https://cntrainradar.graymammoth.com';
-const LIVE_PANORAMA = 'https://linkboyx.github.io/railway-panorama';
-const liveCache = new Map();
+// ========== 列车地图：铁路全景时刻模型 ==========
+// 上游 11 MB 原始时刻/路网数据压缩后随仓库一起发布（data/rp/*.json.gz），
+// 首屏直接读本地快照；后台每 12 小时尝试拉一次上游新数据替换，失败就继续用快照。
+// 服务端按任意时刻算出在途列车，浏览器只收到几千个轻量点位。
+const RP_BASE = 'https://linkboyx.github.io/railway-panorama/data/';
+const RP_FILES = ['meta', 'network', 'stations', 'trains', 'paths'];
+const RP_LOCAL = path.join(__dirname, 'data', 'rp');
+const RP_TTL = 12 * 60 * 60 * 1000;
+let rpModel = null, rpLoading = null, rpLoadedAt = 0, rpError = null, rpLines = null;
+let rpSource = null, rpRefreshStarted = false;
 
-async function liveJson(url, ttlMs) {
-  const now = Date.now();
-  const hit = liveCache.get(url);
-  if (hit && hit.expires > now) return hit.data;
-  if (hit && hit.pending) return hit.pending;
-  const pending = (async () => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15000);
-    try {
-      const r = await fetch(url, {
-        signal: ctrl.signal,
-        headers: { 'User-Agent': UA, Accept: 'application/json,*/*' },
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const data = await r.json();
-      liveCache.set(url, { data, expires: Date.now() + ttlMs });
-      if (liveCache.size > 40) liveCache.delete(liveCache.keys().next().value);
-      return data;
-    } catch (err) {
-      liveCache.delete(url);
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
-  })();
-  liveCache.set(url, { pending });
-  return pending;
+function buildRpModel(parts) {
+  const { RailModel } = require('./lib/rail-model.js');
+  const [meta, network, stations, trains, paths] = parts;
+  rpModel = new RailModel({ meta, network, stations, trains, paths });
+  rpLoadedAt = Date.now();
+  rpLines = null;
+  return rpModel;
 }
 
-function liveEndpoint(route, url, ttlMs) {
-  app.get(route, async (req, res) => {
+async function loadRpLocal() {
+  const zlib = require('zlib');
+  return Promise.all(RP_FILES.map(async (name) => {
+    const buf = await fs.promises.readFile(path.join(RP_LOCAL, name + '.json.gz'));
+    return JSON.parse(zlib.gunzipSync(buf).toString('utf8'));
+  }));
+}
+
+async function loadRpRemote() {
+  const parts = await Promise.all(RP_FILES.map(async (name) => {
+    const resp = await fetch(RP_BASE + name + '.json', {
+      timeout: 90000,
+      headers: { 'User-Agent': UA, Accept: 'application/json,*/*' },
+    });
+    if (!resp.ok) throw new Error(name + ': HTTP ' + resp.status);
+    return resp.json();
+  }));
+  return parts;
+}
+
+function refreshRpRemote() {
+  return loadRpRemote().then((parts) => {
+    buildRpModel(parts);
+    rpSource = 'remote';
+    rpError = null;
+  }).catch((err) => { rpError = err.message; });
+}
+
+async function getRpModel() {
+  if (rpModel && Date.now() - rpLoadedAt < RP_TTL) return rpModel;
+  if (rpLoading) return rpLoading;
+  rpLoading = (async () => {
+    if (rpModel) return rpModel; // 过期数据先继续用，不让请求卡住
     try {
-      const data = await liveJson(url, ttlMs);
-      res.set('Cache-Control', `public, max-age=${Math.floor(ttlMs / 1000)}`).json(data);
-    } catch (err) {
-      res.status(502).json({ status: 1, error: '上游数据暂不可用', detail: err.message });
+      buildRpModel(await loadRpLocal());
+      rpSource = 'snapshot';
+      rpError = null;
+      // 快照可用就不阻塞首屏，后台悄悄追新
+      if (!rpRefreshStarted) {
+        rpRefreshStarted = true;
+        setTimeout(() => { refreshRpRemote(); }, 4000);
+      }
+    } catch (localErr) {
+      try {
+        buildRpModel(await loadRpRemote());
+        rpSource = 'remote';
+        rpError = null;
+      } catch (err) {
+        rpError = localErr.message + ' / ' + err.message;
+        throw err;
+      }
     }
+    return rpModel;
+  })().finally(() => { rpLoading = null; });
+  return rpLoading;
+}
+
+app.get('/api/rp/status', (req, res) => {
+  res.json({
+    status: 0,
+    ready: !!rpModel,
+    loading: !!rpLoading,
+    loadedAt: rpLoadedAt || null,
+    source: rpSource,
+    error: rpError,
+    dates: rpModel ? rpModel.dates : [],
+    trains: rpModel ? rpModel.trains.length : 0,
   });
-}
+});
 
-liveEndpoint('/api/live/meta', LIVE_RADAR + '/api/meta', 10 * 60 * 1000);
-liveEndpoint('/api/live/trains', LIVE_RADAR + '/api/trains', 10 * 1000);
-liveEndpoint('/api/live/railways', LIVE_RADAR + '/data/railways.json', 6 * 60 * 60 * 1000);
-liveEndpoint('/api/live/stations', LIVE_PANORAMA + '/data/stations.json', 24 * 60 * 60 * 1000);
-app.get('/api/live/train/:id', async (req, res) => {
-  const id = String(req.params.id || '').toUpperCase();
-  if (!/^[A-Z0-9]{1,8}$/.test(id)) return res.status(400).json({ status: 1, error: '车次格式不正确' });
+app.get('/api/rp/trains', async (req, res) => {
   try {
-    const data = await liveJson(`${LIVE_RADAR}/api/train/${encodeURIComponent(id)}`, 30 * 1000);
-    res.json(data);
+    const model = await getRpModel();
+    const t = Number(req.query.t);
+    const ms = isFinite(t) && t > 0 ? t : Date.now();
+    const runs = model.activeRuns(ms);
+    const trains = [];
+    for (const r of runs) {
+      const s = model.state(r.t, r.rel);
+      if (!s) continue;
+      const from = model.stations[r.t.st[s.i]], to = model.stations[r.t.st[s.j]];
+      trains.push({
+        id: r.t.code, cls: r.t.cls,
+        lat: +s.lat.toFixed(6), lon: +s.lon.toFixed(6),
+        bearing: Math.round(s.bearing), speed: Math.round(s.speed),
+        moving: s.moving,
+        from: from ? from.name : '', to: to ? to.name : '',
+      });
+    }
+    res.set('Cache-Control', 'no-store').json({ time: ms, count: trains.length, trains });
   } catch (err) {
-    res.status(502).json({ status: 1, error: '未取到该车次详情', detail: err.message });
+    res.status(502).json({ status: 1, error: '时刻数据加载失败', detail: err.message });
   }
 });
+
+app.get('/api/rp/lines', async (req, res) => {
+  try {
+    const model = await getRpModel();
+    if (!rpLines) rpLines = model.lineGeoJSON();
+    res.set('Cache-Control', 'public, max-age=3600').json(rpLines);
+  } catch (err) {
+    res.status(502).json({ status: 1, error: '路网数据加载失败', detail: err.message });
+  }
+});
+
+app.get('/api/rp/stations', async (req, res) => {
+  try {
+    const model = await getRpModel();
+    const rows = model.stations.slice().sort((a, b) => (b.rank || 0) - (a.rank || 0)).slice(0, 900);
+    res.set('Cache-Control', 'public, max-age=86400').json({ stations: rows });
+  } catch (err) {
+    res.status(502).json({ status: 1, error: '站点数据加载失败', detail: err.message });
+  }
+});
+
+app.get('/api/rp/train/:code', async (req, res) => {
+  try {
+    const model = await getRpModel();
+    const code = String(req.params.code || '').toUpperCase();
+    const t = model.trains.find((x) => x.code === code);
+    if (!t) return res.status(404).json({ status: 1, error: '未找到该车次' });
+    const dayNum = req.query.date ? dayNumOfLocal(String(req.query.date)) : null;
+    const todayNum = Math.floor((Date.now() + 8 * 3600000) / 86400000);
+    res.json({ id: code, cls: t.cls, date: req.query.date || null, stops: model.stops(t, dayNum || todayNum) });
+  } catch (err) {
+    res.status(502).json({ status: 1, error: '车次详情加载失败', detail: err.message });
+  }
+});
+
+function dayNumOfLocal(s) {
+  const [y, m, d] = String(s).split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
+}
 
 // ========== 健康检查 ==========
 app.get('/api/health', (req, res) => {

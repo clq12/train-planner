@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>全国列车实时地图 · 票路</title>
-<meta name="description" content="融合中国列车雷达实时位置、铁路全景路网与余票.info 时刻回放的全国列车地图">
+<title>全国列车时刻地图 · 票路</title>
+<meta name="description" content="基于铁路全景时刻数据与余票.info 回看的全国列车地图，支持标准/卫星/夜色/线网主题">
 <link rel="stylesheet" href="/vendor/leaflet.min.css">
 <style>
 :root{--bg:#F2F8FA;--card:#fff;--border:#D8E7EC;--text:#0F2E36;--text2:#54727D;--text3:#8CA8B2;--accent:#0F766E;--shadow:0 4px 18px -8px rgba(15,46,54,.3)}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
 button,input{font-family:inherit}
-.topbar{height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;background:var(--card);border-bottom:1px solid var(--border);position:relative;z-index:1001}
-.brand{font-weight:800;font-size:1.04em;white-space:nowrap}
+.topbar{height:56px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 14px;background:var(--card);border-bottom:1px solid var(--border);position:relative;z-index:1001}
+.brand{font-weight:800;font-size:1.02em;white-space:nowrap}
 .brand small{font-weight:500;color:var(--text3);font-size:.68em;margin-left:6px}
 .badge{display:inline-block;background:rgba(15,118,110,.1);color:var(--accent);border:1px solid rgba(15,118,110,.25);border-radius:9px;padding:1px 7px;font-size:.63em;vertical-align:middle;margin-left:5px}
 .top-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
@@ -21,16 +21,23 @@ button,input{font-family:inherit}
 .btn{background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:6px 11px;font-size:.77em;cursor:pointer;white-space:nowrap}
 .btn:hover{border-color:var(--accent);color:var(--accent)}
 .btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.themes{display:flex;gap:3px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:2px}
+.themes button{border:0;background:transparent;color:var(--text2);border-radius:7px;padding:5px 9px;font-size:.74em;cursor:pointer}
+.themes button.on{background:var(--accent);color:#fff}
 .controls{position:absolute;top:66px;left:12px;right:12px;z-index:1000;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,.96);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:12px;padding:9px 11px;box-shadow:var(--shadow)}
-.controls input[type=text]{border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:.8em;width:200px;outline:none;background:var(--bg)}
-.controls input[type=text]:focus{border-color:var(--accent)}
+.controls input[type=text],.controls input[type=date]{border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:.8em;outline:none;background:var(--bg);color:var(--text)}
+.controls input[type=text]{width:190px}
+.controls input[type=date]{width:132px}
+.controls input:focus{border-color:var(--accent)}
 .controls label{font-size:.75em;color:var(--text2);display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .controls input[type=checkbox]{accent-color:var(--accent);margin:0}
+#timeRange{flex:1 1 180px;min-width:140px;accent-color:var(--accent)}
+.clock{font-variant-numeric:tabular-nums;font-weight:800;color:var(--accent);min-width:52px;font-size:.95em}
 .chips{display:flex;gap:4px;flex-wrap:wrap}
 .chip{border:1px solid var(--border);background:var(--bg);border-radius:20px;padding:4px 9px;font-size:.72em;cursor:pointer;color:var(--text2);white-space:nowrap}
-.chip.on{color:#fff;border-color:transparent}
-.hint{font-size:.72em;color:var(--text3);margin-left:auto}
 #map{position:absolute;top:56px;bottom:0;left:0;right:0;background:#E8F1F3}
+.theme-dark .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.88) contrast(.92) saturate(.75)}
+.theme-rail #map{background:#EDF3F5}
 .detail{position:absolute;right:12px;top:126px;width:300px;max-height:calc(100vh - 150px);overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);z-index:1000;padding:14px;font-size:.8em}
 .detail h3{margin:0 0 8px;font-size:1.08em}
 .detail .close{float:right;cursor:pointer;color:var(--text3);border:0;background:none;font-size:1.1em}
@@ -39,67 +46,75 @@ button,input{font-family:inherit}
 .detail .stops{margin-top:10px;padding-left:14px;border-left:2px solid var(--border)}
 .detail .stop{padding:3px 0;color:var(--text2)}
 .detail .stop.here{color:var(--accent);font-weight:700}
-.legend{position:absolute;left:12px;bottom:24px;background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:10px;padding:8px 10px;z-index:1000;font-size:.7em;box-shadow:var(--shadow);max-width:280px}
+.detail .yp{display:inline-block;margin-top:10px;padding:6px 9px;border-radius:7px;background:rgba(15,118,110,.1);color:var(--accent);text-decoration:none;font-size:.9em}
+.legend{position:absolute;left:12px;bottom:24px;background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:10px;padding:8px 10px;z-index:1000;font-size:.7em;box-shadow:var(--shadow);max-width:300px}
 .legend .row{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:5px}
 .legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px}
 .legend .credit{color:var(--text3);line-height:1.5}
-.train-icon{background:transparent;border:0}
-.train-label{position:absolute;left:12px;top:-7px;background:rgba(255,255,255,.92);color:#0F2E36;border:1px solid rgba(15,46,54,.25);border-radius:4px;padding:0 3px;font-size:9px;font-weight:700;white-space:nowrap;pointer-events:none}
+.train-label{position:absolute;left:12px;top:-7px;background:rgba(255,255,255,.94);color:#0F2E36;border:1px solid rgba(15,46,54,.25);border-radius:4px;padding:0 3px;font-size:9px;font-weight:700;white-space:nowrap;pointer-events:none}
 .leaflet-tooltip.radar-tip{font-size:11px;padding:4px 7px;border-radius:6px}
 #replayWrap{position:absolute;top:56px;bottom:0;left:0;right:0;display:none;flex-direction:column;z-index:999;background:var(--bg)}
 .replay-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--border);font-size:.78em;z-index:2}
 .replay-bar input{padding:5px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg)}
 #replayFrame{flex:1;width:100%;border:0;background:#fff}
 .err{position:absolute;left:50%;top:130px;transform:translateX(-50%);background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;border-radius:10px;padding:9px 14px;z-index:1002;font-size:.8em;display:none;box-shadow:var(--shadow)}
-@media(max-width:700px){
-  .brand small,.hint{display:none}
+@media(max-width:800px){
+  .brand small{display:none}
   .topbar{height:auto;min-height:52px;flex-wrap:wrap;padding:7px 10px}
   .controls{top:auto;bottom:8px;left:8px;right:8px;padding:7px}
-  .controls input[type=text]{width:140px}
-  #map,.replayWrap{top:0}
-  .detail{top:auto;bottom:110px;right:8px;width:min(320px,calc(100vw - 16px));max-height:50vh}
+  .controls input[type=text]{width:130px}
+  #map{top:0}
+  .replayWrap{top:0}
+  .detail{top:auto;bottom:130px;right:8px;width:min(320px,calc(100vw - 16px));max-height:48vh}
   .legend{display:none}
 }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="brand">🗺️ 全国列车实时地图<small>票路 · 三站数据融合</small><span class="badge">LIVE</span></div>
+<div class="topbar" id="topbar">
+  <div class="brand">🗺️ 全国列车时刻地图<small>票路 · 铁路全景数据</small><span class="badge" id="modeBadge">时刻推算</span></div>
   <div class="top-actions">
-    <span class="status" id="status">正在连接实时数据…</span>
-    <button class="btn" id="refreshBtn" title="立即刷新列车位置">⟳ 刷新</button>
-    <button class="btn on" id="modeLive">实时地图</button>
-    <button class="btn" id="modeReplay">时刻回放</button>
+    <span class="status" id="status">正在加载时刻数据…</span>
+    <div class="themes" id="themes">
+      <button data-theme="standard" class="on">标准</button>
+      <button data-theme="satellite">卫星</button>
+      <button data-theme="dark">夜色</button>
+      <button data-theme="rail">线网</button>
+    </div>
+    <button class="btn" id="modeReplay">余票回放</button>
   </div>
 </div>
 
 <div class="controls" id="controls">
-  <input type="text" id="search" placeholder="车次 / 车站，如 G1、北京南" autocomplete="off">
+  <input type="date" id="mapDate" title="运行日期">
+  <input type="range" id="timeRange" min="0" max="1439" step="1" value="480">
+  <span class="clock" id="clock">08:00</span>
+  <button class="btn" id="playBtn" title="按分钟播放">▶ 播放</button>
+  <button class="btn" id="nowBtn" title="回到当前时刻并自动刷新">现在</button>
+  <input type="text" id="search" placeholder="车次 / 车站，如 G1、福州" autocomplete="off">
   <div class="chips" id="typeChips"></div>
   <label><input type="checkbox" id="showLines" checked> 路网</label>
   <label><input type="checkbox" id="showStations" checked> 站点</label>
   <label><input type="checkbox" id="showLabels"> 车次号</label>
-  <button class="btn" id="fitBtn">全国视野</button>
-  <span class="hint" id="filterHint"></span>
+  <button class="btn" id="fitBtn">全国</button>
 </div>
 
 <div id="map"></div>
 <div class="err" id="errBar"></div>
 <div class="detail" id="detail" style="display:none"></div>
-
 <div class="legend" id="legend">
   <div class="row" id="legendTypes"></div>
-  <div class="credit">实时位置：中国列车雷达（按时刻表推算，非官方）· 路网/站点：铁路全景 · 时刻回放：余票.info · 时刻表：12306 · 里程：火车wiki</div>
+  <div class="credit">位置：铁路全景（12306 图定时刻推算，非官方实时）· 回放：余票.info · 底图：高德地图 · 路网/站点：铁路全景</div>
 </div>
 
 <div id="replayWrap">
   <div class="replay-bar">
-    <b>🕐 时刻表回放</b>
+    <b>🕐 余票.info 时刻回放</b>
     <label>日期 <input type="date" id="replayDate"></label>
     <label>时间 <input type="time" id="replayTime" value="08:00"></label>
-    <button class="btn on" id="syncView">同步当前视野</button>
-    <span style="color:var(--text2)">来自 余票.info：按 12306 时刻表推算任意时刻的列车位置，可与实时地图对照查看</span>
+    <button class="btn on" id="syncView">同步当前视野与时刻</button>
+    <span style="color:var(--text2)">另一套按 12306 时刻表推算的列车分布，可与左侧选中的车次对照</span>
   </div>
   <iframe id="replayFrame" title="余票.info 时刻回放地图" loading="lazy"></iframe>
 </div>
@@ -108,20 +123,31 @@ button,input{font-family:inherit}
 <script>
 (function () {
   'use strict';
-  var API = '/api/live';
+  var API = '/api/rp';
   var TYPES = {
-    G: { name: '高速动车', color: '#2563EB' },
-    D: { name: '动车组',   color: '#0891B2' },
-    C: { name: '城际',     color: '#059669' },
-    Z: { name: '直达',     color: '#7C3AED' },
-    T: { name: '特快',     color: '#D97706' },
-    K: { name: '快速',     color: '#DC2626' },
-    O: { name: '其他',     color: '#64748B' }
+    G: { name: '高速动车', color: '#2563EB' }, D: { name: '动车组', color: '#0891B2' },
+    C: { name: '城际', color: '#059669' }, Z: { name: '直达', color: '#7C3AED' },
+    T: { name: '特快', color: '#D97706' }, K: { name: '快速', color: '#DC2626' },
+    O: { name: '其他', color: '#64748B' }
   };
+  var THEME_TILES = {
+    standard: [{ style: 7, z: 1 }],
+    satellite: [{ style: 6, z: 1 }, { style: 8, z: 2 }],
+    dark: [{ style: 7, z: 1 }],
+    rail: []
+  };
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var typeOf = function (t) { return TYPES[t] ? t : 'O'; };
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  var clockText = function (m) { m = ((m % 1440) + 1440) % 1440; return pad(Math.floor(m / 60)) + ':' + pad(Math.floor(m % 60)); };
+  var beijingDate = function () { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); };
+  var dateToDay = function (s) { var p = s.split('-').map(Number); return Math.round(Date.UTC(p[0], p[1] - 1, p[2]) / 86400000); };
+  var timeToMs = function (date, minutes) { return dateToDay(date) * 86400000 - 8 * 3600000 + minutes * 60000; };
 
-  // 高德瓦片是 GCJ-02，上游经纬度是 WGS-84，必须转换，否则列车会整体偏移 500 米左右
+  // 高德瓦片 GCJ-02：上游数据是 WGS-84，必须转换
   var PI = Math.PI, A = 6378245.0, EE = 0.00669342162296594323;
-  function inChina(lon, lat) { return lon > 73.66 && lon < 135.05 && lat > 3.86 && lat < 53.55; }
   function tLat(x, y) {
     var r = -100 + 2*x + 3*y + .2*y*y + .1*x*y + .2*Math.sqrt(Math.abs(x));
     r += (20*Math.sin(6*x*PI) + 20*Math.sin(2*x*PI)) * 2/3;
@@ -137,7 +163,7 @@ button,input{font-family:inherit}
     return r;
   }
   function wgs2gcj(lon, lat) {
-    if (!inChina(lon, lat)) return [lon, lat];
+    if (!(lon > 73.66 && lon < 135.05 && lat > 3.86 && lat < 53.55)) return [lon, lat];
     var dLat = tLat(lon-105, lat-35), dLon = tLon(lon-105, lat-35);
     var rad = lat/180*PI, magic = Math.sin(rad);
     magic = 1 - EE*magic*magic;
@@ -147,120 +173,138 @@ button,input{font-family:inherit}
     return [lon + dLon, lat + dLat];
   }
 
-  var $ = function (id) { return document.getElementById(id); };
-  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-  }); };
-  var typeOf = function (t) { return TYPES[t] ? t : 'O'; };
+  // 兼容用户给的两种 hash：#map=z/lat/lon 与 #time=HH:MM&@lat,lon,z
+  var init = { zoom: 4, lat: 35.5, lon: 104, minutes: 480, date: beijingDate(), theme: 'standard' };
+  (function parseHash() {
+    var raw = decodeURIComponent(location.hash.replace(/^#/, ''));
+    if (!raw) return;
+    var m = raw.match(/map=([0-9.]+)\/(-?[0-9.]+)\/(-?[0-9.]+)/);
+    if (m) { init.zoom = +m[1]; init.lat = +m[2]; init.lon = +m[3]; }
+    var v = raw.match(/@(-?[0-9.]+),(-?[0-9.]+)(?:,([0-9.]+))?z?/);
+    if (v) { init.lat = +v[1]; init.lon = +v[2]; if (v[3]) init.zoom = +v[3]; }
+    var t = raw.match(/time=(\d{1,2}):(\d{2})/);
+    if (t) init.minutes = (+t[1]) * 60 + (+t[2]);
+    var d = raw.match(/date=(\d{4}-\d{2}-\d{2})/);
+    if (d) init.date = d[1];
+    var th = raw.match(/theme=(\w+)/);
+    if (th && THEME_TILES[th[1]]) init.theme = th[1];
+  })();
+  init.zoom = Math.max(3, Math.min(12, init.zoom));
 
-  var map = L.map('map', { center: [35.5, 104], zoom: 4, minZoom: 3, maxZoom: 17, zoomControl: true, attributionControl: true });
-  L.tileLayer('https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}', {
-    subdomains: '1234', maxZoom: 18, minZoom: 3,
-    attribution: '© 高德地图 · 位置为时刻表推算，非官方'
-  }).addTo(map);
-
-  var trainRenderer = L.canvas({ padding: 0.25 });
-  var trainLayer = L.layerGroup().addTo(map);
-  var labelLayer = L.layerGroup().addTo(map);
-  var stationLayer = L.layerGroup().addTo(map);
-  var railLayer = null;
-
-  var trains = [], trainById = new Map(), meta = new Map(), markers = new Map(), selectedId = null;
-  var query = '', activeTypes = {}, labelsOn = false, linesOn = true, stationsOn = true;
-  var stationIndex = [], pollTimer = null, detailCache = new Map();
+  var map = L.map('map', {
+    center: [init.lat, init.lon], zoom: init.zoom, minZoom: 3, maxZoom: 17,
+    zoomSnap: 0.01, zoomDelta: 0.5, attributionControl: true
+  });
+  var tileLayers = [], railLayer = null, railVisible = true;
+  var trainRenderer = L.canvas({ padding: .25 }), stationRenderer = L.canvas({ padding: .2 });
+  var trainLayer = L.layerGroup().addTo(map), labelLayer = L.layerGroup().addTo(map), stationLayer = L.layerGroup().addTo(map);
+  var trains = [], trainById = new Map(), markers = new Map(), stations = [], selectedId = null;
+  var query = '', activeTypes = {}, labelsOn = false, stationsOn = true;
+  var minutes = init.minutes, dateStr = init.date, theme = init.theme;
+  var playing = false, playTimer = null, liveTimer = null, fetchSeq = 0, debounce = null, selectedTrainCode = null;
 
   Object.keys(TYPES).forEach(function (k) { activeTypes[k] = true; });
+  $('mapDate').value = dateStr;
+  $('replayDate').value = dateStr;
+  $('timeRange').value = minutes;
+  $('clock').textContent = clockText(minutes);
+  $('replayTime').value = clockText(minutes);
 
-  // 类型筛选按钮与图例
   $('typeChips').innerHTML = Object.keys(TYPES).map(function (k) {
-    return '<span class="chip on" data-t="' + k + '" style="background:' + TYPES[k].color + '">' + k + ' · ' + TYPES[k].name + '</span>';
+    return '<span class="chip on" data-t="' + k + '" style="background:' + TYPES[k].color + ';color:#fff">' + k + '</span>';
   }).join('');
   $('legendTypes').innerHTML = Object.keys(TYPES).map(function (k) {
     return '<span><i class="dot" style="background:' + TYPES[k].color + '"></i>' + k + ' ' + TYPES[k].name + '</span>';
   }).join('');
   $('typeChips').addEventListener('click', function (e) {
     var c = e.target.closest('.chip'); if (!c) return;
-    var k = c.dataset.t;
-    activeTypes[k] = !activeTypes[k];
+    var k = c.dataset.t; activeTypes[k] = !activeTypes[k];
     c.classList.toggle('on', activeTypes[k]);
     c.style.background = activeTypes[k] ? TYPES[k].color : '';
     c.style.color = activeTypes[k] ? '#fff' : '';
     applyFilter();
   });
 
-  function matches(t) {
-    if (!activeTypes[typeOf(t.type)]) return false;
-    if (!query) return true;
-    var m = meta.get(t.id) || {};
-    var hay = [t.id, t.currentStation, t.nextStation, m[1], m[2], m[3]].join(' ').toLowerCase();
-    return hay.indexOf(query) >= 0;
+  function setTheme(name) {
+    if (!THEME_TILES[name]) return;
+    theme = name;
+    tileLayers.forEach(function (l) { map.removeLayer(l); });
+    tileLayers = [];
+    THEME_TILES[name].forEach(function (cfg) {
+      var layer = L.tileLayer('https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scl=1&style=' + cfg.style + '&x={x}&y={y}&z={z}', {
+        subdomains: '1234', minZoom: 3, maxZoom: 18, zIndex: cfg.z,
+        attribution: '© 高德地图 · 位置按图定时刻推算'
+      });
+      layer.addTo(map); tileLayers.push(layer);
+    });
+    document.body.classList.toggle('theme-dark', name === 'dark');
+    document.body.classList.toggle('theme-rail', name === 'rail');
+    $('map').style.background = name === 'rail' ? '#EDF3F5' : '#E8F1F3';
+    Array.prototype.forEach.call($('themes').children, function (b) { b.classList.toggle('on', b.dataset.theme === name); });
+    if (railLayer) railLayer.setStyle(lineStyle());
+    writeHash();
+  }
+  function lineStyle() {
+    if (theme === 'satellite') return { color: '#67E8F9', weight: map.getZoom() >= 8 ? 2 : 1.3, opacity: .75 };
+    if (theme === 'dark') return { color: '#94A3B8', weight: map.getZoom() >= 8 ? 2 : 1.1, opacity: .5 };
+    if (theme === 'rail') return { color: '#0F766E', weight: map.getZoom() >= 8 ? 2.6 : 1.7, opacity: .9 };
+    return { color: '#0F766E', weight: map.getZoom() >= 8 ? 2 : 1.1, opacity: .5 };
+  }
+  $('themes').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (b) setTheme(b.dataset.theme);
+  });
+
+  function writeHash() {
+    var c = map.getCenter();
+    var h = '#map=' + map.getZoom().toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4) +
+      '&time=' + clockText(minutes) + '&date=' + dateStr + '&theme=' + theme;
+    try { history.replaceState(null, '', h); } catch (e) {}
   }
 
+  function matches(t) {
+    if (!activeTypes[typeOf(t.cls)]) return false;
+    if (!query) return true;
+    return [t.id, t.from, t.to].join(' ').toLowerCase().indexOf(query) >= 0;
+  }
   function iconFor(t, isSel) {
-    var color = TYPES[typeOf(t.type)].color;
-    return L.circleMarker([t.lat, t.lon], {
+    var color = TYPES[typeOf(t.cls)].color;
+    var p = wgs2gcj(t.lon, t.lat);
+    return L.circleMarker([p[1], p[0]], {
       renderer: trainRenderer,
-      radius: isSel ? 7 : (map.getZoom() >= 8 ? 4.5 : 3.5),
-      color: isSel ? '#F59E0B' : '#fff',
-      weight: isSel ? 2.5 : 0.8,
-      fillColor: color,
-      fillOpacity: isSel ? 1 : .9,
-      bubblingMouseEvents: false
-    }).bindTooltip('<b>' + esc(t.id) + '</b> ' + esc(t.currentStation || '') + ' → ' + esc(t.nextStation || '') +
-      '<br>' + (t.speed || 0) + ' km/h　' + esc((meta.get(t.id) || [])[1] || ''),
+      radius: isSel ? 7 : (map.getZoom() >= 8 ? 4.5 : 3.4),
+      color: isSel ? '#F59E0B' : '#fff', weight: isSel ? 2.5 : .8,
+      fillColor: color, fillOpacity: isSel ? 1 : .92, bubblingMouseEvents: false
+    }).bindTooltip('<b>' + esc(t.id) + '</b> ' + esc(t.from) + ' → ' + esc(t.to) +
+      '<br>' + (t.moving ? t.speed + ' km/h' : '停站中'),
       { className: 'radar-tip', direction: 'top', offset: [0, -6] });
   }
 
-  function bindTrainClick(marker, id) {
-    marker.on('click', function () { selectTrain(id); });
-  }
-
-  function renderTrains(data) {
-    var list = (data && data.trains) || [];
-    trains = list;
-    trainById.clear();
+  function renderTrains(list, timeMs) {
     var seen = new Set();
     for (var i = 0; i < list.length; i++) {
       var t = list[i];
       if (!isFinite(t.lat) || !isFinite(t.lon)) continue;
-      seen.add(t.id);
-      trainById.set(t.id, t);
-      var p = wgs2gcj(t.lon, t.lat);
+      seen.add(t.id); trainById.set(t.id, t);
       var m = markers.get(t.id);
-      if (m) {
-        m.setLatLng([p[1], p[0]]);
-      } else {
-        m = iconFor(t, t.id === selectedId);
-        bindTrainClick(m, t.id);
-        markers.set(t.id, m);
-      }
+      if (m) m.setLatLng(wgs2gcj(t.lon, t.lat).slice().reverse());
+      else { m = iconFor(t, t.id === selectedId); m.on('click', function () { selectTrain(this._tid); }); m._tid = t.id; markers.set(t.id, m); }
       if (matches(t)) { if (!trainLayer.hasLayer(m)) trainLayer.addLayer(m); }
       else if (trainLayer.hasLayer(m)) trainLayer.removeLayer(m);
     }
-    markers.forEach(function (m, id) {
-      if (!seen.has(id)) { trainLayer.removeLayer(m); markers.delete(id); }
-    });
+    markers.forEach(function (m, id) { if (!seen.has(id)) { trainLayer.removeLayer(m); markers.delete(id); } });
+    trains = list;
     drawLabels();
-    var status = $('status');
-    status.classList.remove('warn');
-    status.textContent = '● ' + (data.count != null ? data.count : list.length) + ' 列在途 · ' +
-      new Date().toLocaleTimeString('zh-CN', { hour12: false }) + ' 更新';
+    var st = $('status'); st.classList.remove('warn');
+    st.textContent = '● ' + list.length + ' 列在途 · ' + clockText(minutes);
   }
-
   function applyFilter() {
     var shown = 0;
     for (var i = 0; i < trains.length; i++) {
-      var t = trains[i], m = markers.get(t.id);
-      if (!m) continue;
-      if (matches(t)) { trainLayer.addLayer(m); shown++; }
-      else trainLayer.removeLayer(m);
+      var t = trains[i], m = markers.get(t.id); if (!m) continue;
+      if (matches(t)) { trainLayer.addLayer(m); shown++; } else trainLayer.removeLayer(m);
     }
-    $('filterHint').textContent = (query || Object.keys(activeTypes).some(function (k) { return !activeTypes[k]; }))
-      ? '筛选显示 ' + shown + ' / ' + trains.length + ' 列' : '';
     drawLabels();
   }
-
-  // 车次号标签只在放大后显示，且限制数量，避免上万列车把浏览器拖死
   function drawLabels() {
     labelLayer.clearLayers();
     if (!labelsOn || map.getZoom() < 7) return;
@@ -269,152 +313,131 @@ button,input{font-family:inherit}
       var t = trains[i];
       if (!matches(t) || !b.contains([t.lat, t.lon])) continue;
       var p = wgs2gcj(t.lon, t.lat);
-      var col = TYPES[typeOf(t.type)].color;
       L.marker([p[1], p[0]], {
         interactive: false,
-        icon: L.divIcon({ className: 'train-icon', html: '<span class="train-label" style="border-color:' + col + '">' + esc(t.id) + '</span>', iconSize: [0, 0] })
+        icon: L.divIcon({ className: '', html: '<span class="train-label" style="border-color:' + TYPES[typeOf(t.cls)].color + '">' + esc(t.id) + '</span>', iconSize: [0, 0] })
       }).addTo(labelLayer);
       n++;
     }
   }
-  ['moveend', 'zoomend'].forEach(function (ev) { map.on(ev, function () { if (labelsOn) drawLabels(); }); });
+  ['moveend', 'zoomend'].forEach(function (ev) {
+    map.on(ev, function () { if (labelsOn) drawLabels(); if (railLayer) railLayer.setStyle(lineStyle()); writeHash(); });
+  });
 
   function selectTrain(id) {
-    selectedId = id;
+    var t = trainById.get(id); if (!t) return;
+    selectedId = id; selectedTrainCode = id;
     markers.forEach(function (m, key) {
-      if (!trainById.has(key)) return;
-      var old = m.options;
-      var isSel = key === id;
-      old.color = isSel ? '#F59E0B' : '#fff';
-      old.weight = isSel ? 2.5 : .8;
-      old.radius = isSel ? 7 : (map.getZoom() >= 8 ? 4.5 : 3.5);
-      old.fillOpacity = isSel ? 1 : .9;
-      m.setStyle(old);
-      m.setRadius(old.radius);
+      var sel = key === id;
+      m.setStyle({ color: sel ? '#F59E0B' : '#fff', weight: sel ? 2.5 : .8, fillOpacity: sel ? 1 : .92 });
+      m.setRadius(sel ? 7 : (map.getZoom() >= 8 ? 4.5 : 3.4));
     });
-    var t = trainById.get(id);
-    if (t) {
-      var p = wgs2gcj(t.lon, t.lat);
-      if (!map.getBounds().contains([p[1], p[0]])) map.panTo([p[1], p[0]], { animate: true });
-    }
-    var box = $('detail');
-    box.style.display = '';
-    box.innerHTML = '<button class="close" id="detailClose">✕</button><h3>🚄 ' + esc(id) + '</h3><div style="color:var(--text2);margin-bottom:8px">' +
-      esc(((meta.get(id) || [])[1]) || '') + '</div><div id="detailBody">正在读取停站信息…</div>';
+    var p = wgs2gcj(t.lon, t.lat);
+    if (!map.getBounds().contains([p[1], p[0]])) map.panTo([p[1], p[0]]);
+    var box = $('detail'); box.style.display = '';
+    box.innerHTML = '<button class="close" id="detailClose">✕</button><h3>🚄 ' + esc(id) + '</h3>' +
+      '<div class="kv"><span>区间</span><b>' + esc(t.from) + ' → ' + esc(t.to) + '</b></div>' +
+      '<div class="kv"><span>状态</span><b>' + (t.moving ? t.speed + ' km/h' : '停站中') + '</b></div>' +
+      '<div id="detailStops" style="margin-top:8px;color:var(--text2)">读取停站中…</div>' +
+      '<a class="yp" id="openYupiao" href="#">↗ 在余票地图上看这趟车</a>';
     $('detailClose').onclick = closeDetail;
-    var cached = detailCache.get(id);
-    if (cached) paintDetail(id, cached);
-    else fetch(API + '/train/' + encodeURIComponent(id))
+    $('openYupiao').onclick = function (e) { e.preventDefault(); openReplayFor(id); };
+    fetch(API + '/train/' + encodeURIComponent(id) + '?date=' + dateStr)
       .then(function (r) { return r.json(); })
-      .then(function (d) { detailCache.set(id, d); paintDetail(id, d); })
-      .catch(function () { var b = $('detailBody'); if (b) b.textContent = '详情暂不可用'; });
+      .then(function (d) {
+        var el = $('detailStops'); if (!el) return;
+        var stops = (d && d.stops) || [];
+        if (!stops.length) { el.textContent = '暂无停站数据'; return; }
+        el.innerHTML = '<div class="stops">' + stops.map(function (s) {
+          var hit = s.name === t.from || s.name === t.to;
+          return '<div class="stop' + (hit ? ' here' : '') + '">' + esc(s.name) + '</div>';
+        }).join('') + '</div>';
+      }).catch(function () { var el = $('detailStops'); if (el) el.textContent = '停站数据暂不可用'; });
   }
-  function paintDetail(id, d) {
-    var b = $('detailBody'); if (!b) return;
-    var live = trainById.get(id) || {};
-    var stops = (d && d.stops) || [];
-    var now = live.currentStation || '';
-    var html = '<div class="kv"><span>当前 / 下一站</span><b>' + esc(now || '—') + ' → ' + esc(live.nextStation || '—') + '</b></div>' +
-      '<div class="kv"><span>速度 / 区间进度</span><b>' + (live.speed || 0) + ' km/h · ' + (live.progress || 0) + '%</b></div>';
-    if (stops.length) {
-      html += '<div class="stops">';
-      stops.forEach(function (s) {
-        var hit = s.name === now || s.name === live.nextStation;
-        html += '<div class="stop' + (hit ? ' here' : '') + '">' + esc(s.name) +
-          ' <small>' + esc(fmtMin(s.arrive_min)) + '/' + esc(fmtMin(s.depart_min)) + '</small></div>';
-      });
-      html += '</div>';
-    }
-    b.innerHTML = html;
-  }
-  function fmtMin(m) {
-    if (m == null || !isFinite(m)) return '—';
-    m = Math.floor(m); var day = Math.floor(m / 1440); m -= day * 1440;
-    return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0') + (day ? '+' + day : '');
-  }
-  function closeDetail() { selectedId = null; $('detail').style.display = 'none'; applyFilter(); }
+  function closeDetail() { selectedId = null; selectedTrainCode = null; $('detail').style.display = 'none'; applyFilter(); }
   map.on('click', function () { if (selectedId) closeDetail(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && selectedId) closeDetail(); });
 
-  function showErr(msg) {
-    var b = $('errBar'); b.textContent = msg; b.style.display = '';
-  }
-  function hideErr() { $('errBar').style.display = 'none'; }
-
-  function loadTrains() {
-    fetch(API + '/trains', { cache: 'no-store' })
+  function fetchTrains() {
+    var seq = ++fetchSeq;
+    var ms = timeToMs(dateStr, minutes);
+    fetch(API + '/trains?t=' + ms, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (d) { hideErr(); renderTrains(d); })
+      .then(function (d) { if (seq !== fetchSeq) return; $('errBar').style.display = 'none'; renderTrains(d.trains || [], d.time); })
       .catch(function (e) {
-        showErr('实时数据暂时不可用（' + e.message + '），正在重试…');
-        $('status').classList.add('warn');
-        $('status').textContent = '上游数据中断';
+        if (seq !== fetchSeq) return;
+        $('errBar').textContent = '时刻数据暂不可用（' + e.message + '），正在重试…';
+        $('errBar').style.display = '';
+        $('status').classList.add('warn'); $('status').textContent = '数据中断';
       });
   }
+  function scheduleFetch() {
+    clearTimeout(debounce);
+    debounce = setTimeout(fetchTrains, 180);
+  }
+  function setTime(m, fromUser) {
+    minutes = ((m % 1440) + 1440) % 1440;
+    $('timeRange').value = minutes;
+    $('clock').textContent = clockText(minutes);
+    $('replayTime').value = clockText(minutes);
+    if (fromUser) { stopLive(); writeHash(); scheduleFetch(); }
+  }
+  $('timeRange').addEventListener('input', function () { setTime(+this.value, true); });
+  $('mapDate').onchange = function () { dateStr = this.value; $('replayDate').value = dateStr; stopLive(); writeHash(); fetchTrains(); };
+  function startLive() {
+    stopLive();
+    var now = new Date(Date.now() + 8 * 3600e3);
+    dateStr = now.toISOString().slice(0, 10);
+    $('mapDate').value = dateStr; $('replayDate').value = dateStr;
+    setTime(now.getUTCHours() * 60 + now.getUTCMinutes(), false);
+    $('modeBadge').textContent = '实时跟随';
+    $('nowBtn').classList.add('on');
+    fetchTrains();
+    liveTimer = setInterval(function () {
+      var n = new Date(Date.now() + 8 * 3600e3);
+      dateStr = n.toISOString().slice(0, 10); $('mapDate').value = dateStr;
+      setTime(n.getUTCHours() * 60 + n.getUTCMinutes(), false);
+      fetchTrains();
+    }, 30000);
+  }
+  function stopLive() {
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+    $('nowBtn').classList.remove('on');
+    $('modeBadge').textContent = '时刻推算';
+  }
+  $('nowBtn').onclick = startLive;
+  $('playBtn').onclick = function () {
+    playing = !playing;
+    this.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+    this.classList.toggle('on', playing);
+    if (playing) { stopLive(); playTimer = setInterval(function () { setTime(minutes + 1, true); }, 700); }
+    else clearInterval(playTimer);
+  };
+  $('refreshBtn') && ($('refreshBtn').onclick = fetchTrains);
 
-  function loadMeta() {
-    fetch(API + '/meta').then(function (r) { return r.json(); }).then(function (d) {
-      (d.trains || []).forEach(function (row) { meta.set(row[0], row); });
+  function loadLines() {
+    fetch(API + '/lines').then(function (r) { return r.json(); }).then(function (d) {
+      railLayer = L.geoJSON(d, { renderer: L.canvas({ padding: .2 }), interactive: false, style: lineStyle() });
+      if (railVisible) railLayer.addTo(map);
     }).catch(function () {});
   }
-
-  // 铁路全景：全国线路（189 条 LineString，约 1.9 MB），Canvas 渲染
-  function loadRailways() {
-    fetch(API + '/railways').then(function (r) { return r.json(); }).then(function (d) {
-      var fc = { type: 'FeatureCollection', features: (d.features || []).map(function (f) {
-        var c = f.geometry && f.geometry.coordinates;
-        if (!c) return f;
-        return { type: 'Feature', properties: f.properties, geometry: {
-          type: f.geometry.type,
-          coordinates: f.geometry.type === 'LineString'
-            ? c.map(function (p) { return wgs2gcj(p[0], p[1]); })
-            : c.map(function (line) { return line.map(function (p) { return wgs2gcj(p[0], p[1]); }); })
-        } };
-      }) };
-      railLayer = L.geoJSON(fc, {
-        renderer: L.canvas({ padding: .2 }), interactive: false,
-        style: function () { return { color: '#0F766E', weight: map.getZoom() >= 8 ? 2 : 1.1, opacity: .45 }; }
-      });
-      if (linesOn) railLayer.addTo(map);
-    }).catch(function () {});
-  }
-  map.on('zoomend', function () {
-    if (!railLayer) return;
-    railLayer.setStyle({ weight: map.getZoom() >= 8 ? 2 : 1.1 });
-  });
-
-  // 铁路全景：站点（按热度取前 900 个），可作为搜索定位目标
   function loadStations() {
     fetch(API + '/stations').then(function (r) { return r.json(); }).then(function (d) {
-      var rows = (d.rows || []).slice().sort(function (a, b) { return (b[8] || 0) - (a[8] || 0); }).slice(0, 900);
-      stationIndex = rows.map(function (r) {
-        var p = wgs2gcj(r[5] / 1e5, r[6] / 1e5);
-        return { name: r[0], py: r[2] || '', city: r[4] || '', lat: p[1], lon: p[0] };
-      });
-      var stationRenderer = L.canvas({ padding: .2 });
-      stationIndex.forEach(function (s) {
-        L.circleMarker([s.lat, s.lon], {
+      stations = d.stations || [];
+      stations.forEach(function (s) {
+        var p = wgs2gcj(s.lon, s.lat);
+        L.circleMarker([p[1], p[0]], {
           renderer: stationRenderer, radius: 2, color: '#fff', weight: .5,
-          fillColor: '#0F766E', fillOpacity: .75, interactive: false
+          fillColor: theme === 'satellite' ? '#A5F3FC' : '#0F766E', fillOpacity: .75, interactive: false
         }).addTo(stationLayer);
       });
       if (!stationsOn) map.removeLayer(stationLayer);
     }).catch(function () {});
   }
-
-  $('search').addEventListener('input', function () {
-    query = this.value.trim().toLowerCase();
-    if (query.length >= 2) {
-      var s = stationIndex.find(function (x) {
-        return x.name === query || x.name.indexOf(query) === 0 || x.py.indexOf(query) === 0;
-      });
-      if (s) map.flyTo([s.lat, s.lon], Math.max(map.getZoom(), 8), { duration: .6 });
-    }
-    applyFilter();
-  });
   $('showLines').onchange = function () {
-    linesOn = this.checked;
-    if (railLayer) { if (linesOn) railLayer.addTo(map); else map.removeLayer(railLayer); }
+    railVisible = this.checked;
+    if (!railLayer) return;
+    if (railVisible) railLayer.addTo(map); else map.removeLayer(railLayer);
   };
   $('showStations').onchange = function () {
     stationsOn = this.checked;
@@ -422,42 +445,50 @@ button,input{font-family:inherit}
   };
   $('showLabels').onchange = function () { labelsOn = this.checked; drawLabels(); };
   $('fitBtn').onclick = function () { map.flyToBounds([[18, 73], [54, 135]], { duration: .7 }); };
-  $('refreshBtn').onclick = function () { loadTrains(); };
+  $('search').addEventListener('input', function () {
+    query = this.value.trim().toLowerCase();
+    if (query.length >= 2) {
+      var s = stations.find(function (x) { return x.name.indexOf(query) === 0 || (x.py || '').indexOf(query) === 0; });
+      if (s) { var p = wgs2gcj(s.lon, s.lat); map.flyTo([p[1], p[0]], Math.max(map.getZoom(), 8), { duration: .6 }); }
+    }
+    applyFilter();
+  });
 
-  // 时刻回放：把当前视野和时刻写进 余票.info 的 URL hash，两个地图共用一套坐标感觉
-  function beijingDate() {
-    return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  // 余票.info：按当前视野 + 时刻打开它的时刻表回放
+  function replayUrl(code) {
+    var c = map.getCenter(), z = Math.max(4, Math.min(12, Math.round(map.getZoom())));
+    var sel = code ? encodeURIComponent(code) + '&' : '';
+    return 'https://www.yupiao.info/#' + sel + 'time=' + clockText(minutes) +
+      '&date=' + dateStr + '&@' + c.lat.toFixed(4) + ',' + c.lng.toFixed(4) + ',' + z + 'z';
   }
-  $('replayDate').value = beijingDate();
-  function loadReplay() {
-    var c = map.getCenter(), z = Math.max(4, Math.min(12, map.getZoom()));
-    var hash = '#time=' + encodeURIComponent($('replayTime').value || '08:00') +
-      '&date=' + $('replayDate').value + '&@' + c.lat.toFixed(4) + ',' + c.lng.toFixed(4) + ',' + z + 'z';
-    $('replayFrame').src = 'https://www.yupiao.info/' + hash;
+  function openReplayFor(code) {
+    $('replayFrame').src = replayUrl(code);
+    $('controls').style.display = 'none'; $('legend').style.display = 'none';
+    $('map').style.visibility = 'hidden';
+    $('replayWrap').style.display = 'flex';
+    $('modeReplay').classList.add('on');
   }
-  function setMode(replay) {
-    $('modeLive').classList.toggle('on', !replay);
-    $('modeReplay').classList.toggle('on', replay);
-    $('controls').style.display = replay ? 'none' : '';
-    $('legend').style.display = replay ? 'none' : '';
-    $('replayWrap').style.display = replay ? 'flex' : 'none';
-    $('map').style.visibility = replay ? 'hidden' : 'visible';
-    if (replay) loadReplay();
+  $('modeReplay').onclick = function () { openReplayFor(selectedTrainCode); };
+  function closeReplay() {
+    $('replayWrap').style.display = 'none'; $('map').style.visibility = 'visible';
+    $('controls').style.display = ''; $('legend').style.display = '';
+    $('modeReplay').classList.remove('on');
   }
-  $('modeLive').onclick = function () { setMode(false); };
-  $('modeReplay').onclick = function () { setMode(true); };
-  $('syncView').onclick = function () { loadReplay(); };
-  $('replayTime').onchange = function () { loadReplay(); };
-  $('replayDate').onchange = function () { loadReplay(); };
+  $('syncView').onclick = function () { $('replayFrame').src = replayUrl(selectedTrainCode); };
+  $('replayTime').onchange = function () {
+    var p = this.value.split(':'); if (p.length === 2) setTime((+p[0]) * 60 + (+p[1]), true);
+    $('replayFrame').src = replayUrl(selectedTrainCode);
+  };
+  $('replayDate').onchange = function () { dateStr = this.value; $('mapDate').value = dateStr; $('replayFrame').src = replayUrl(selectedTrainCode); };
+  // 回放模式下点顶栏徽标返回地图
+  document.querySelector('.brand').onclick = closeReplay;
+  document.querySelector('.brand').style.cursor = 'pointer';
 
-  loadMeta();
-  loadRailways();
-  loadStations();
-  loadTrains();
-  pollTimer = setInterval(loadTrains, 10000);
+  setTheme(theme);
+  loadLines(); loadStations();
+  if (/time=/.test(location.hash)) fetchTrains(); else startLive();
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { clearInterval(pollTimer); pollTimer = null; }
-    else if (!pollTimer) { loadTrains(); pollTimer = setInterval(loadTrains, 10000); }
+    if (document.hidden && playTimer) { clearInterval(playTimer); playTimer = null; playing = false; $('playBtn').textContent = '▶ 播放'; }
   });
 })();
 </script>
