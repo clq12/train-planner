@@ -293,7 +293,7 @@ button,input{font-family:inherit}
   var speed = 1, playMs = 1000, animMs = 650, fetchGapMs = 250, playRaf = 0, playLast = 0, playCarry = 0;
   var hashTimer = null, detailData = null, detailTab = 'table';
   var followTrain = false;   // 视角跟随：地图中心跟随选中车次移动
-  var animating = new Map(), rafId = 0, replayVisible = false;
+  var animating = new Map(), navMarkers = new Set(), rafId = 0, replayVisible = false;
 
   Object.keys(TYPES).forEach(function (k) { activeTypes[k] = true; });
   $('mapDate').value = dateStr;
@@ -388,13 +388,44 @@ button,input{font-family:inherit}
     }
     animating.set(m, { from: from, to: to, start: performance.now(), dur: animMs });
   }
+  // 播放时按「当前样本 + 航向 + 速度」逐帧推算位置，车头沿路线切线连续前进；
+  // 新样本到达后只做短时误差修正，不在两个采样点之间直线跳跃。
+  function setNav(m, t) {
+    var base = wgs2gcj(t.lon, t.lat);
+    var cur = m.getLatLng();
+    var corrLat = cur.lat - base[1], corrLng = cur.lng - base[0];
+    if (Math.abs(corrLat) > .05 || Math.abs(corrLng) > .05) { corrLat = 0; corrLng = 0; }
+    m._nav = {
+      t0: performance.now(), lat: t.lat, lon: t.lon,
+      bearing: t.bearing || 0, speed: t.speed || 0, moving: !!t.moving,
+      corrLat: corrLat, corrLng: corrLng
+    };
+    navMarkers.add(m);
+  }
   function animateTick(ts) {
     animating.forEach(function (a, m) {
       var p = Math.min(1, (ts - a.start) / a.dur);
-      // 播放时用线性插值：每段匀速衔接，不会因为缓入缓出在高采样率下反复“顿一下”
-      var e = playing ? p : (p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
+      var e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
       m.setLatLng([a.from.lat + (a.to.lat - a.from.lat) * e, a.from.lng + (a.to.lng - a.from.lng) * e]);
       if (p >= 1) animating.delete(m);
+    });
+    navMarkers.forEach(function (m) {
+      var nav = m._nav;
+      if (!nav) { navMarkers.delete(m); return; }
+      var realDt = Math.max(0, ts - nav.t0);
+      // 只有播放时推进模拟时间；暂停后仍让修正量衰减到新样本，避免残留偏移
+      var simSec = playing ? Math.min(120, realDt * speed * 5 / 1000) : 0;
+      var km = nav.moving ? (nav.speed * simSec / 3600) : 0;
+      var rad = nav.bearing * Math.PI / 180;
+      var lat = nav.lat + (km * Math.cos(rad)) / 111.32;
+      var lon = nav.lon + (km * Math.sin(rad)) / (111.32 * Math.max(.2, Math.cos(nav.lat * Math.PI / 180)));
+      var p = wgs2gcj(lon, lat);
+      var k = Math.max(0, 1 - realDt / 220);
+      var gLat = p[1] + nav.corrLat * k, gLon = p[0] + nav.corrLng * k;
+      m.setLatLng([gLat, gLon]);
+      var t = trainById.get(m._uid);
+      if (t) { t.lat = lat; t.lon = lon; }
+      if (followTrain && m._uid === selectedId) map.setView([gLat, gLon], map.getZoom(), { animate: false });
     });
     rafId = requestAnimationFrame(animateTick);
   }
@@ -409,18 +440,35 @@ button,input{font-family:inherit}
       seen.add(uid); trainById.set(uid, t);
       var m = markers.get(uid);
       var p = wgs2gcj(t.lon, t.lat);
-      if (m) moveMarker(m, p[1], p[0], true);
-      else {
+      var visible = map.getBounds().pad(0.1).contains([p[1], p[0]]);
+      if (m) {
+        if (playing && visible && matches(t)) setNav(m, t);
+        else {
+          navMarkers.delete(m); m._nav = null;
+          moveMarker(m, p[1], p[0], true);
+        }
+      } else {
         m = iconFor(t, uid === selectedId);
         m.on('click', function () { selectTrain(this._uid); });
         m._uid = uid; markers.set(uid, m);
+        if (playing && visible && matches(t)) setNav(m, t);
       }
       if (matches(t)) { if (!trainLayer.hasLayer(m)) trainLayer.addLayer(m); }
-      else if (trainLayer.hasLayer(m)) trainLayer.removeLayer(m);
+      else if (trainLayer.hasLayer(m)) {
+        trainLayer.removeLayer(m);
+        navMarkers.delete(m); m._nav = null;
+      }
     }
-    markers.forEach(function (m, id) { if (!seen.has(id)) { trainLayer.removeLayer(m); markers.delete(id); } });
+    markers.forEach(function (m, id) {
+      if (!seen.has(id)) {
+        trainLayer.removeLayer(m);
+        navMarkers.delete(m); m._nav = null;
+        markers.delete(id);
+      }
+    });
     trains = list;
     drawLabels();
+    if (followTrain && selectedId && !seen.has(selectedId)) fetchSelectedState(timeMs || timeToMs(dateStr, minutes));
     if (selectedId) updateFocusMarker();
     var st = $('status'); st.classList.remove('warn');
     st.textContent = (transferMode
@@ -720,6 +768,19 @@ button,input{font-family:inherit}
     });
   }
 
+  // 跟随的车次拖到「不在途」时刻时，普通 trains 列表已没有它，单独取精确位置让视角继续跟随
+  function fetchSelectedState(ms) {
+    if (!selectedId || !followTrain) return;
+    fetch(API + '/state?uid=' + encodeURIComponent(selectedId) + '&t=' + ms, { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !isFinite(d.lat) || !isFinite(d.lon)) return;
+        var old = trainById.get(selectedId) || {};
+        trainById.set(selectedId, Object.assign({}, old, d));
+        updateFocusMarker();          // 跟随时会在这里 setView 到新时刻的位置
+      })
+      .catch(function () {});
+  }
   function fetchTrains() {
     if (fetching) { fetchPending = true; return; }   // 单飞行：避免高速播放时请求堆高、响应全被 seq 丢弃
     fetching = true;
@@ -762,7 +823,11 @@ button,input{font-family:inherit}
     if (fromUser) {
       stopLive();
       clearTimeout(hashTimer); hashTimer = setTimeout(writeHash, 150);  // hash 节流，避免高速播放频繁写历史
-      scheduleFetch();
+      if (followTrain) {
+        // 跟随开启时拖动/修改时间必须立刻取新时刻的精确位置，否则地图仍停在旧位置
+        clearTimeout(fetchTimer); fetchTimer = null; nextFetchAt = 0;
+        fetchTrains();
+      } else scheduleFetch();
     }
   }
   $('timeRange').addEventListener('input', function () { setTime(+this.value, true); });
@@ -814,6 +879,8 @@ button,input{font-family:inherit}
     playRaf = 0; playTimer = null; playLast = 0; playCarry = 0; nextFetchAt = 0;
     $('playBtn').textContent = '▶ 播放';
     $('playBtn').classList.remove('on');
+    // 暂停时把推算位置对齐回该时刻的精确样本，避免停在外推点上
+    fetchTrains();
   }
   $('playBtn').onclick = function () {
     if (playing) { stopPlay(); return; }

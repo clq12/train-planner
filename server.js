@@ -1414,6 +1414,29 @@ app.get('/api/rp/trains', async (req, res) => {
   }
 });
 
+// 单趟车在任意时刻的精确位置：视角跟随拖到车次不在途的时刻时仍要能定位
+app.get('/api/rp/state', async (req, res) => {
+  try {
+    const model = await getRpModel();
+    const uid = String(req.query.uid || '');
+    const t = Number(req.query.t);
+    const ms = isFinite(t) && t > 0 ? t : Date.now();
+    const run = model.runByUid(uid, ms);
+    if (!run) return res.status(404).json({ status: 1, error: '该车次此刻不在运行区间' });
+    const s = model.state(run.t, run.rel);
+    if (!s) return res.status(404).json({ status: 1, error: '该车次此刻无可用位置' });
+    const from = model.stations[run.t.st[s.i]], to = model.stations[run.t.st[s.j]];
+    res.set('Cache-Control', 'no-store').json({
+      id: run.t.code, uid: uid, cls: run.t.cls,
+      lat: +s.lat.toFixed(6), lon: +s.lon.toFixed(6),
+      bearing: Math.round(s.bearing), speed: Math.round(s.speed), moving: s.moving,
+      from: from ? from.name : '', to: to ? to.name : '', time: ms, status: run.status
+    });
+  } catch (err) {
+    res.status(502).json({ status: 1, error: '车次位置加载失败', detail: err.message });
+  }
+});
+
 app.get('/api/rp/lines', async (req, res) => {
   try {
     const model = await getRpModel();
