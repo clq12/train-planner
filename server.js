@@ -1392,10 +1392,14 @@ app.get('/api/rp/trains', async (req, res) => {
     const t = Number(req.query.t);
     const ms = isFinite(t) && t > 0 ? t : Date.now();
     const runs = model.activeRuns(ms);
+    const bb = String(req.query.bbox || '').split(',').map(Number);
+    const hasBB = bb.length === 4 && bb.every(Number.isFinite);
     const trains = [];
     for (const r of runs) {
       const s = model.state(r.t, r.rel);
       if (!s) continue;
+      // 只回传视野附近的车，避免全国视图外仍塞几千条 JSON 给前端解析
+      if (hasBB && (s.lat < bb[1] || s.lat > bb[3] || s.lon < bb[0] || s.lon > bb[2])) continue;
       const from = model.stations[r.t.st[s.i]], to = model.stations[r.t.st[s.j]];
       trains.push({
         id: r.t.code,
@@ -1408,7 +1412,7 @@ app.get('/api/rp/trains', async (req, res) => {
         from: from ? from.name : '', to: to ? to.name : '',
       });
     }
-    res.set('Cache-Control', 'no-store').json({ time: ms, count: trains.length, trains });
+    res.set('Cache-Control', 'no-store').json({ time: ms, count: runs.length, trains });
   } catch (err) {
     res.status(502).json({ status: 1, error: '时刻数据加载失败', detail: err.message });
   }
