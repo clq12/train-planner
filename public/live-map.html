@@ -288,10 +288,11 @@ button,input{font-family:inherit}
   var minutes = init.minutes, dateStr = init.date, theme = init.theme;
   var playing = false, playTimer = null, liveTimer = null, fetchSeq = 0, selectedTrainCode = null;
   // 位置请求：最小间隔节流 + 单飞行，避免高速播放时 debounce 吞请求 / 高频请求饿死
-  var fetchTimer = null, nextFetchAt = 0, fetching = false, fetchPending = false;
+  var fetchTimer = null, nextFetchAt = 0, fetching = false, fetchPending = false, lastFetchSentAt = 0;
   // 播放：速度 N× = 每真实秒推进 N 个 5 秒步长（1×=5秒/秒，120×=10分钟/秒）
   var speed = 1, playMs = 1000, animMs = 650, fetchGapMs = 250, playRaf = 0, playLast = 0, playCarry = 0;
   var hashTimer = null, detailData = null, detailTab = 'table';
+  var lastDetailRefresh = 0, lastDrawLabels = 0;
   var followTrain = false;   // 视角跟随：地图中心跟随选中车次移动
   var animating = new Map(), navMarkers = new Set(), rafId = 0, replayVisible = false;
 
@@ -390,16 +391,31 @@ button,input{font-family:inherit}
   }
   // 播放时按「当前样本 + 航向 + 速度」逐帧推算位置，车头沿路线切线连续前进；
   // 新样本到达后只做短时误差修正，不在两个采样点之间直线跳跃。
+  function projectNav(nav, simSec) {
+    var km = nav.moving ? (nav.speed * simSec / 3600) : 0;
+    var rad = nav.bearing * Math.PI / 180;
+    return {
+      lat: nav.lat + (km * Math.cos(rad)) / 111.32,
+      lon: nav.lon + (km * Math.sin(rad)) / (111.32 * Math.max(.2, Math.cos(nav.lat * Math.PI / 180)))
+    };
+  }
   function setNav(m, t) {
-    var base = wgs2gcj(t.lon, t.lat);
+    var now = performance.now();
+    // 样本是发请求那一刻算出来的，响应路上又过了几十毫秒；
+    // 把 t0 回拨到发送时刻，避免每批样本都把车头拽回几十毫秒前，形成一顿一顿。
+    var latency = lastFetchSentAt ? Math.min(250, Math.max(0, now - lastFetchSentAt)) : 0;
+    var nav = {
+      t0: now - latency, lat: t.lat, lon: t.lon,
+      bearing: t.bearing || 0, speed: t.speed || 0, moving: !!t.moving
+    };
+    // 修正量以「响应到达时」为基准：当前屏幕位置 vs 新样本推算到同一时刻的位置
+    var ahead = projectNav(nav, playing ? latency * speed * 5 / 1000 : 0);
+    var base = wgs2gcj(ahead.lon, ahead.lat);
     var cur = m.getLatLng();
     var corrLat = cur.lat - base[1], corrLng = cur.lng - base[0];
     if (Math.abs(corrLat) > .05 || Math.abs(corrLng) > .05) { corrLat = 0; corrLng = 0; }
-    m._nav = {
-      t0: performance.now(), lat: t.lat, lon: t.lon,
-      bearing: t.bearing || 0, speed: t.speed || 0, moving: !!t.moving,
-      corrLat: corrLat, corrLng: corrLng
-    };
+    nav.corrLat = corrLat; nav.corrLng = corrLng;
+    m._nav = nav;
     navMarkers.add(m);
   }
   function animateTick(ts) {
@@ -414,11 +430,9 @@ button,input{font-family:inherit}
       if (!nav) { navMarkers.delete(m); return; }
       var realDt = Math.max(0, ts - nav.t0);
       // 只有播放时推进模拟时间；暂停后仍让修正量衰减到新样本，避免残留偏移
-      var simSec = playing ? Math.min(120, realDt * speed * 5 / 1000) : 0;
-      var km = nav.moving ? (nav.speed * simSec / 3600) : 0;
-      var rad = nav.bearing * Math.PI / 180;
-      var lat = nav.lat + (km * Math.cos(rad)) / 111.32;
-      var lon = nav.lon + (km * Math.sin(rad)) / (111.32 * Math.max(.2, Math.cos(nav.lat * Math.PI / 180)));
+      var simSec = playing ? Math.min(240, realDt * speed * 5 / 1000) : 0;
+      var q = projectNav(nav, simSec);
+      var lat = q.lat, lon = q.lon;
       var p = wgs2gcj(lon, lat);
       var k = Math.max(0, 1 - realDt / 220);
       var gLat = p[1] + nav.corrLat * k, gLon = p[0] + nav.corrLng * k;
@@ -467,7 +481,9 @@ button,input{font-family:inherit}
       }
     });
     trains = list;
-    drawLabels();
+    if (!playing || performance.now() - lastDrawLabels > 180) {
+      drawLabels(); lastDrawLabels = performance.now();
+    }
     if (followTrain && selectedId && !seen.has(selectedId)) fetchSelectedState(timeMs || timeToMs(dateStr, minutes));
     if (selectedId) updateFocusMarker();
     var st = $('status'); st.classList.remove('warn');
@@ -786,6 +802,7 @@ button,input{font-family:inherit}
     fetching = true;
     var seq = ++fetchSeq;
     var ms = timeToMs(dateStr, minutes);
+    lastFetchSentAt = performance.now();       // 用于补偿请求延迟，避免样本总是落后一拍
     fetch(API + '/trains?t=' + ms, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (d) {
@@ -819,10 +836,16 @@ button,input{font-family:inherit}
     $('timeRange').value = minutes;
     $('clock').textContent = clockText(minutes);
     $('replayTime').value = clockHM(minutes);
-    refreshDetail();                      // 选中车次后，时钟推进时同步刷新状态 / 时刻表高亮 / 运行图“现在”线
+    // 播放时每帧都在推进，详情重绘节流到 120ms，避免重排造成顿挫
+    var nowTs = performance.now();
+    if (!playing || nowTs - lastDetailRefresh > 120) {
+      refreshDetail();                    // 同步状态 / 时刻表高亮 / 运行图“现在”线
+      lastDetailRefresh = nowTs;
+    }
     if (fromUser) {
-      stopLive();
-      clearTimeout(hashTimer); hashTimer = setTimeout(writeHash, 150);  // hash 节流，避免高速播放频繁写历史
+      if (liveTimer) stopLive();
+      // 固定节流窗口：不能每次都 clearTimeout，否则高帧率下 hash 永远写不出去
+      if (!hashTimer) hashTimer = setTimeout(function () { hashTimer = null; writeHash(); }, 150);
       if (followTrain) {
         // 跟随开启时拖动/修改时间必须立刻取新时刻的精确位置，否则地图仍停在旧位置
         clearTimeout(fetchTimer); fetchTimer = null; nextFetchAt = 0;
@@ -834,17 +857,24 @@ button,input{font-family:inherit}
   $('mapDate').onchange = function () { dateStr = this.value; $('replayDate').value = dateStr; stopLive(); writeHash(); fetchTrains(); };
   function startLive() {
     stopLive();
+    if (playing) stopPlay();                  // 必须真正停掉播放，否则时钟马上又被推走
+    followTrain = false;                      // “现在”是回到当前时刻，不应继续锁在某一趟车上
+    var fb = $('followBtn'); if (fb) fb.classList.remove('on');
+    clearTimeout(fetchTimer); fetchTimer = null; nextFetchAt = 0;
     var now = new Date(Date.now() + 8 * 3600e3);
     dateStr = now.toISOString().slice(0, 10);
     $('mapDate').value = dateStr; $('replayDate').value = dateStr;
-    setTime(now.getUTCHours() * 60 + now.getUTCMinutes(), false);
+    var nowMin = now.getUTCHours() * 60 + now.getUTCMinutes() + now.getUTCSeconds() / 60;
+    setTime(nowMin, false);
+    writeHash();                              // 立刻把 URL 时刻同步为现在，不能只改 DOM
     $('modeBadge').textContent = '实时跟随';
     $('nowBtn').classList.add('on');
     fetchTrains();
     liveTimer = setInterval(function () {
       var n = new Date(Date.now() + 8 * 3600e3);
       dateStr = n.toISOString().slice(0, 10); $('mapDate').value = dateStr;
-      setTime(n.getUTCHours() * 60 + n.getUTCMinutes(), false);
+      setTime(n.getUTCHours() * 60 + n.getUTCMinutes() + n.getUTCSeconds() / 60, false);
+      writeHash();
       fetchTrains();
     }, 30000);
   }
@@ -862,12 +892,8 @@ button,input{font-family:inherit}
       if (!playLast) playLast = ts;
       var dt = Math.min(100, ts - playLast);       // 单帧最多补 100ms，防止切后台跳变
       playLast = ts;
-      playCarry += dt * speed * 5 / 1000;          // 该推进的秒数：速度 × 真实秒 × 5
-      var steps = Math.floor(playCarry / 5);
-      if (steps > 0) {
-        playCarry -= steps * 5;
-        setTime(minutes + steps * STEP_MIN, true); // 每一步 5 秒
-      }
+      // 每帧连续推进模拟时间，不再“攒够 5 秒才动一下”，时钟和车头同步走
+      setTime(minutes + (dt * speed * 5 / 1000) / 60, true);
       playRaf = requestAnimationFrame(frame);
     }
     playRaf = requestAnimationFrame(frame);
