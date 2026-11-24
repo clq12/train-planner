@@ -952,6 +952,9 @@ function pickStationByText(text) {
   const list = Object.values(allStations);
   const exact = list.find(s => s.name === q);
   if (exact) return exact;
+  // 用户直接输入站码（如 VAP、AOH）时也要能解析，不能只认站名/拼音
+  const byCode = list.find(s => s.code && s.code.toLowerCase() === ql);
+  if (byCode) return byCode;
   const cands = list.filter(s =>
     s.name.startsWith(q) || s.pinyin.startsWith(ql) || s.pinyinShort === ql
   );
@@ -971,7 +974,7 @@ function syncStationInputs() {
     const input = document.getElementById(k + 'Input');
     const codeEl = document.getElementById(k + 'Code');
     const text = (input.value || '').trim();
-    if (!text) return;
+    if (!text) { codeEl.value = ''; return; }   // 清空输入时必须同时清掉旧站码，否则会查上一次的站
     const byCode = Object.values(allStations).find(s => s.code === codeEl.value);
     if (byCode && byCode.name === text) return;   // 文字与站码一致，不动
     const hit = pickStationByText(text);
@@ -984,6 +987,7 @@ function syncStationInputs() {
 
 // ========== 主搜索 ==========
 async function doSearch() {
+  if (document.getElementById('btnSearch').disabled) return;   // 防止回车/连点并发查询互相覆盖
   syncStationInputs();
   if (!syncViaInput()) {
     alert('指定中转站「' + viaName() + '」不是有效车站，请从下拉列表里选一个，或点「✕ 清除」留空');
@@ -1066,7 +1070,7 @@ async function doSearch() {
 function renderTrainList(trains, fromName, toName, date, onlyAvailable) {
   const allCanBuy = currentTrains.filter(t => t.canBuy && hasTicket(t)).length;
   const types = {};
-  const displayList = onlyAvailable ? trains : currentTrains;
+  const displayList = currentTrains;   // 类型计数始终按全部车次，避免「有票」标签与类型标签口径不一致
   displayList.forEach(t => {
     const tp = trainType(t.trainNo);
     const labels = {g:'高铁G',d:'动车D',k:'快速K',z:'直达Z',t:'特快T'};
@@ -1086,7 +1090,8 @@ function renderTrainList(trains, fromName, toName, date, onlyAvailable) {
     <div class="stat-card s-green"><div class="num">${allCanBuy}</div><div class="label">有票车次</div></div>
     <div class="stat-card s-blue"><div class="num">${currentTrains.length}</div><div class="label">总车次</div></div>
     <div class="stat-card s-yellow"><div class="num">${fromName}→${toName}</div><div class="label">${date}</div></div>`;
-  // 通过 applyFilters 统一处理排序和筛选
+  // 默认展示有票；若一辆有票车都没有则展示全部。标签 active 与实际过滤必须一致
+  trainTypeFilter = onlyAvailable ? 'canbuy' : 'all';
   applyFilters();
 }
 
@@ -3063,6 +3068,10 @@ function renderStrategies(strategies) {
   var noticeHTML = _transferNotice
     ? '<div class="route-card" style="border-left:3px solid var(--warn);margin-bottom:10px"><div style="padding:12px 16px;font-size:.85em;color:var(--warn);line-height:1.6">⚠️ ' + escapeHTML(_transferNotice) + '</div></div>'
     : '';
+  if (!strategies.length) {
+    el.innerHTML = noticeHTML + '<div class="empty-state"><div class="icon">🧭</div><h3>暂无可行方案</h3><p>可以换个日期、放宽筛选，或到管理设置里增加检索天数与换乘等待上限。</p></div>';
+    return;
+  }
   el.innerHTML = noticeHTML + strategies.map(function(s, idx){
     var badgeClass = s.type==='direct'?'badge-direct':s.type==='waitlist'?'badge-transfer':s.type==='transfer'?'badge-direct':'badge-trick';
     var countText = s.trains&&s.trains.length ? s.trains.length+' 个车次'

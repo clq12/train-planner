@@ -449,7 +449,13 @@ button,input{font-family:inherit}
           gLat = tp[1]; gLon = tp[0];
           m.setLatLng([gLat, gLon]);
           var tt = trainById.get(m._uid);
-          if (tt) { tt.lat = lat; tt.lon = lon; }
+          var brg = tt ? (tt.bearing || 0) : 0;
+          var dLat = trk.lats[i0 + 1] - trk.lats[i0], dLon = trk.lons[i0 + 1] - trk.lons[i0];
+          if (Math.abs(dLat) + Math.abs(dLon) > 1e-9) {
+            brg = (Math.atan2(dLon * Math.cos(lat * Math.PI / 180), dLat) * 180 / Math.PI + 360) % 360;
+          }
+          if (tt) { tt.lat = lat; tt.lon = lon; tt.bearing = brg; }
+          if (m._uid === selectedId) moveFocusMarker(gLat, gLon, brg);
           if (followTrain && m._uid === selectedId) map.setView([gLat, gLon], map.getZoom(), { animate: false });
           return;
         }
@@ -465,6 +471,7 @@ button,input{font-family:inherit}
       m.setLatLng([gLat, gLon]);
       var t = trainById.get(m._uid);
       if (t) { t.lat = lat; t.lon = lon; }
+      if (m._uid === selectedId) moveFocusMarker(gLat, gLon, nav.bearing);
       if (followTrain && m._uid === selectedId) map.setView([gLat, gLon], map.getZoom(), { animate: false });
     });
     rafId = requestAnimationFrame(animateTick);
@@ -506,22 +513,42 @@ button,input{font-family:inherit}
         markers.delete(id);
       }
     });
+    // 深链先建的是 code@deep 的占位车；一旦真实车次出现在列表里，切到真实 uid，跟随才会动
+    if (selectedId && selectedId.indexOf('@deep') > 0) {
+      var deepCode = selectedTrainCode || selectedId.split('@')[0];
+      for (var di = 0; di < list.length; di++) {
+        if (list[di].id === deepCode) {
+          var oldId = selectedId;
+          selectedId = list[di].uid; selectedTrainCode = deepCode;
+          trainById.delete(oldId);
+          var rm = markers.get(selectedId);
+          if (rm) { rm.setStyle({ color: '#F59E0B', weight: 2.5, fillOpacity: 1 }); rm.setRadius(7); }
+          break;
+        }
+      }
+    }
     trains = list;
     if (!playing || performance.now() - lastDrawLabels > 180) {
       drawLabels(); lastDrawLabels = performance.now();
     }
-    if (followTrain && selectedId && !seen.has(selectedId)) fetchSelectedState(timeMs || timeToMs(dateStr, minutes));
+    if (selectedId && !seen.has(selectedId)) fetchSelectedState(timeMs || timeToMs(dateStr, minutes));
     if (selectedId) updateFocusMarker();
     var st = $('status'); st.classList.remove('warn');
     st.textContent = transferMode
       ? '● 换乘线路：' + (init.legs || []).join(' → ') + ' · ' + clockText(minutes)
-      : '● ' + (total || list.length) + ' 列在途 · ' + clockText(minutes);
+      : focusMode
+        ? '● 专注：' + (focusCodes.join(' / ') || '目标车次') + ' · ' + clockText(minutes)
+        : '● ' + (total || list.length) + ' 列在途 · ' + clockText(minutes);
   }
   function applyFilter() {
     var shown = 0;
     for (var i = 0; i < trains.length; i++) {
       var t = trains[i], m = markers.get(t.uid || t.id); if (!m) continue;
-      if (matches(t)) { trainLayer.addLayer(m); shown++; } else trainLayer.removeLayer(m);
+      if (matches(t)) { trainLayer.addLayer(m); shown++; }
+      else {
+        trainLayer.removeLayer(m);
+        navMarkers.delete(m); m._nav = null;
+      }
     }
     drawLabels();
   }
@@ -543,7 +570,10 @@ button,input{font-family:inherit}
   var bboxTimer = null;
   ['moveend', 'zoomend'].forEach(function (ev) {
     map.on(ev, function () {
-      if (labelsOn) drawLabels(); if (railLayer) railLayer.setStyle(lineStyle()); writeHash();
+      if (labelsOn) drawLabels(); if (railLayer) railLayer.setStyle(lineStyle());
+      // 跟随时 setView 每帧都会 moveend：hash 只节流写，否则 history.replaceState 每帧执行
+      if (!followTrain) writeHash();
+      else if (!hashTimer) hashTimer = setTimeout(function () { hashTimer = null; writeHash(); }, 220);
       // 视野变了要按新 bbox 重新取车；跟随时 setView 每帧都会 moveend，跳过
       if (!followTrain && !bboxTimer) {
         bboxTimer = setTimeout(function () {
@@ -561,20 +591,36 @@ button,input{font-family:inherit}
     return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
   }
 
-  function clearRoute() { routeLayer.clearLayers(); focusLayer.clearLayers(); }
+  var focusMarker = null;
+  function clearRoute() { routeLayer.clearLayers(); focusLayer.clearLayers(); focusMarker = null; }
 
   function updateFocusMarker() {
-    focusLayer.clearLayers();
     var t = trainById.get(selectedId);
-    if (!t) return;
+    if (!t) {
+      if (focusMarker) { focusLayer.removeLayer(focusMarker); focusMarker = null; }
+      return;
+    }
     var q = wgs2gcj(t.lon, t.lat);
-    var arrow = '<svg width="22" height="22" viewBox="0 0 22 22" style="transform:rotate(' + (t.bearing || 0) + 'deg)">' +
-      '<path d="M11 1 L17 19 L11 15 L5 19 Z" fill="#F59E0B" stroke="#fff" stroke-width="1.5"/></svg>';
-    L.marker([q[1], q[0]], {
-      interactive: false,
-      icon: L.divIcon({ className: '', html: arrow, iconSize: [22, 22], iconAnchor: [11, 11] })
-    }).addTo(focusLayer);
+    if (!focusMarker) {
+      var arrow = '<svg width="22" height="22" viewBox="0 0 22 22" style="transform:rotate(' + (t.bearing || 0) + 'deg)">' +
+        '<path d="M11 1 L17 19 L11 15 L5 19 Z" fill="#F59E0B" stroke="#fff" stroke-width="1.5"/></svg>';
+      focusMarker = L.marker([q[1], q[0]], {
+        interactive: false,
+        icon: L.divIcon({ className: '', html: arrow, iconSize: [22, 22], iconAnchor: [11, 11] })
+      }).addTo(focusLayer);
+    } else {
+      focusMarker.setLatLng([q[1], q[0]]);
+      var svg = focusMarker.getElement() && focusMarker.getElement().querySelector('svg');
+      if (svg) svg.style.transform = 'rotate(' + (t.bearing || 0) + 'deg)';
+    }
     if (followTrain) map.setView([q[1], q[0]], map.getZoom(), { animate: false });
+  }
+  // 选中车每帧都在动，焦点箭头也要跟着走，不能只靠每 600ms 一次的车次列表刷新
+  function moveFocusMarker(gLat, gLon, bearing) {
+    if (!focusMarker) return;
+    focusMarker.setLatLng([gLat, gLon]);
+    var svg = focusMarker.getElement() && focusMarker.getElement().querySelector('svg');
+    if (svg && isFinite(bearing)) svg.style.transform = 'rotate(' + Math.round(bearing) + 'deg)';
   }
   function centerOnSelected() {
     var t = trainById.get(selectedId); if (!t) return;
@@ -867,7 +913,7 @@ button,input{font-family:inherit}
 
   // 跟随的车次拖到「不在途」时刻时，普通 trains 列表已没有它，单独取精确位置让视角继续跟随
   function fetchSelectedState(ms) {
-    if (!selectedId || !followTrain) return;
+    if (!selectedId) return;
     fetch(API + '/state?uid=' + encodeURIComponent(selectedId) + '&t=' + ms, { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
@@ -875,6 +921,7 @@ button,input{font-family:inherit}
         var old = trainById.get(selectedId) || {};
         trainById.set(selectedId, Object.assign({}, old, d));
         updateFocusMarker();          // 跟随时会在这里 setView 到新时刻的位置
+        refreshDetail();
       })
       .catch(function () {});
   }
@@ -932,8 +979,8 @@ button,input{font-family:inherit}
       if (!playbackTick) clearTracks();   // 拖动时间轴 / 改日期时旧轨道窗口失效
       // 固定节流窗口：不能每次都 clearTimeout，否则高帧率下 hash 永远写不出去
       if (!hashTimer) hashTimer = setTimeout(function () { hashTimer = null; writeHash(); }, 150);
-      if (followTrain) {
-        // 跟随开启时拖动/修改时间必须立刻取新时刻的精确位置，否则地图仍停在旧位置
+      if (followTrain && !playbackTick) {
+        // 只有用户拖动/修改时间时才立刻取新时刻位置；播放帧不能每帧强制请求
         clearTimeout(fetchTimer); fetchTimer = null; nextFetchAt = 0;
         fetchTrains();
       } else scheduleFetch();
