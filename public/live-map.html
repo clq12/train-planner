@@ -51,10 +51,13 @@ button,input{font-family:inherit}
 .detail .tabs2{display:flex;gap:4px;margin:10px 0 8px;border-bottom:1px solid var(--border)}
 .detail .tabs2 button{border:0;background:none;padding:6px 10px;font-size:.85em;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent}
 .detail .tabs2 button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
-.detail table{width:100%;border-collapse:collapse;font-size:.9em}
+.detail table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:.9em}
 .detail th{position:sticky;top:0;background:var(--card);color:var(--text3);font-weight:600;text-align:left;padding:5px 4px;border-bottom:1px solid var(--border)}
-.detail td{padding:5px 4px;border-bottom:1px dashed var(--border);white-space:nowrap}
+.detail th.num{text-align:right}
+.detail td{padding:5px 4px;border-bottom:1px dashed var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail td.num{text-align:right;font-variant-numeric:tabular-nums}
+.detail th:first-child,.detail td:first-child{width:40%}
+.detail th.num,.detail td.num{width:20%}
 .detail tr.cur{background:rgba(245,158,11,.16);font-weight:700}
 .detail tr.next{background:rgba(15,118,110,.10)}
 .detail tr.past{color:var(--text3)}

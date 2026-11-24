@@ -149,6 +149,17 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .modal{background:var(--card);border-radius:14px;padding:22px;max-width:700px;width:92%;max-height:80vh;overflow-y:auto;border:1px solid var(--border)}
 .modal h2{margin-bottom:10px;font-size:1.05em}
 .modal-close{float:right;background:none;border:none;color:var(--text2);font-size:1.2em;cursor:pointer}
+/* 出行日程浮层：不离开当前页面，搜索结果与标签状态全部保留 */
+.itinerary-overlay{display:none;position:fixed;inset:0;background:rgba(15,46,54,.5);z-index:300;backdrop-filter:blur(4px)}
+.itinerary-overlay.show{display:flex;align-items:center;justify-content:center}
+.itinerary-shell{width:min(1120px,96vw);height:min(92vh,900px);background:var(--card);border-radius:16px;border:1px solid var(--border);box-shadow:0 24px 70px -20px rgba(15,46,54,.45);display:flex;flex-direction:column;overflow:hidden}
+.itinerary-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:var(--card2);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.itinerary-head b{font-size:.95em}
+.itinerary-head span{display:block;font-size:.72em;color:var(--text2)}
+.itinerary-head button{border:1px solid var(--border);background:var(--bg);border-radius:8px;padding:7px 12px;color:var(--text2);font-size:.78em;cursor:pointer}
+.itinerary-head button:hover{border-color:var(--accent);color:var(--accent)}
+#itineraryFrame{flex:1;width:100%;border:0;background:#fff}
+@media(max-width:700px){.itinerary-shell{width:100vw;height:100vh;border-radius:0;border:0}}
 
 .progress-bar{margin:12px 0;display:none}.progress-bar.show{display:block}
 .progress-bar .bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
@@ -761,6 +772,16 @@ body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
   <div class="modal" id="modalContent"></div>
 </div>
 
+<div class="itinerary-overlay" id="itineraryOverlay" onclick="if(event.target===this)closeItinerary()">
+  <div class="itinerary-shell">
+    <div class="itinerary-head">
+      <div><b>🗓️ 出行日程</b><span>火车 / 航班 / 地面接驳，关闭后回到刚才的查询结果</span></div>
+      <button type="button" onclick="closeItinerary()">✕ 关闭并返回搜索结果</button>
+    </div>
+    <iframe id="itineraryFrame" title="出行日程" loading="lazy"></iframe>
+  </div>
+</div>
+
 <button class="back-to-top" id="backToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="回到顶部">↑</button>
 
 <script src="/itinerary-core.js"></script>
@@ -1356,6 +1377,42 @@ function viewTrainOnMap(trainNo, depTime) {
   if (frame) frame.src = '/live-map.html' + hash;
   switchTab('live');
 }
+
+// ========== 出行日程浮层：不跳转整页，保留搜索结果 ==========
+function openItinerary(hash) {
+  try { if (typeof closeModal === 'function') closeModal(); } catch (e) {}
+  const overlay = document.getElementById('itineraryOverlay');
+  const frame = document.getElementById('itineraryFrame');
+  if (!overlay || !frame) return;
+  frame.src = '/itinerary.html?embed=1' + (hash || '');
+  overlay.classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closeItinerary() {
+  const overlay = document.getElementById('itineraryOverlay');
+  if (!overlay) return;
+  overlay.classList.remove('show');
+  document.body.style.overflow = '';
+  const frame = document.getElementById('itineraryFrame');
+  if (frame) frame.src = 'about:blank';
+}
+document.addEventListener('click', function (e) {
+  const a = e.target.closest && e.target.closest('a[href*="itinerary.html"]');
+  if (!a) return;
+  let url;
+  try { url = new URL(a.href, location.href); } catch (err) { return; }
+  if (url.pathname !== '/itinerary.html') return;
+  e.preventDefault();
+  openItinerary(url.hash);
+});
+window.addEventListener('message', function (e) {
+  if (e.data === 'closeItinerary') closeItinerary();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  const overlay = document.getElementById('itineraryOverlay');
+  if (overlay && overlay.classList.contains('show')) closeItinerary();
+});
 
 function trainCardHTML(t, idx) {
   const tp = trainType(t.trainNo);

@@ -7,6 +7,11 @@ h1 { font-size:clamp(1.85rem,4vw,2.65rem); line-height:1.2; margin:12px 0 8px; }
 h2 { font-size:1.2rem; line-height:1.3; margin-bottom:6px; }
 a { color:var(--accent); text-underline-offset:3px; }
 .page-header { margin-bottom:24px; }
+/* 嵌入主站浮层时收紧留白，避免在大弹窗里出现双层大标题 */
+body.embedded main { max-width:none; padding:16px 20px 26px; }
+body.embedded .page-header { margin-bottom:14px; }
+body.embedded .page-header h1, body.embedded .page-header p { display:none; }
+body.embedded .page-header { margin-bottom:10px; }
 .page-header p,.note,.empty { color:var(--muted); }
 .layout { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(0,1fr); align-items:start; gap:16px; }
 .stack { display:grid; gap:16px; min-width:0; }

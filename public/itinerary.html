@@ -86,5 +86,21 @@
     </div>
   </div>
 </main>
+<script>
+/* 嵌入票路主页浮层时，返回按钮改为通知外层关闭，不再整页跳走 */
+(function () {
+  if (!/[?&]embed=1/.test(location.search)) return;
+  document.body.classList.add('embedded');
+  var back = document.querySelector('.page-header .back');
+  if (!back) return;
+  back.href = '#';
+  back.textContent = '← 返回查火车';
+  back.onclick = function (e) {
+    e.preventDefault();
+    if (window.parent && window.parent !== window) window.parent.postMessage('closeItinerary', '*');
+    else location.href = '/';
+  };
+})();
+</script>
 </body>
 </html>
