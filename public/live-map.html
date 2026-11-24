@@ -198,6 +198,11 @@ button,input{font-family:inherit}
   };
   var beijingDate = function () { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); };
   var dateToDay = function (s) { var p = s.split('-').map(Number); return Math.round(Date.UTC(p[0], p[1] - 1, p[2]) / 86400000); };
+  var shiftDate = function (s, days) {
+    var p = s.split('-').map(Number);
+    var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + days));
+    return d.toISOString().slice(0, 10);
+  };
   var timeToMs = function (date, minutes) { return dateToDay(date) * 86400000 - 8 * 3600000 + minutes * 60000; };
 
   // 高德瓦片 GCJ-02：上游数据是 WGS-84，必须转换
@@ -772,7 +777,11 @@ button,input{font-family:inherit}
     if (detailData && detailData.id === code) { drawRoute(); renderPanel(); return; }
     fetch(API + '/train/' + encodeURIComponent(code) + '?date=' + dateStr)
       .then(function (r) { return r.json(); })
-      .then(function (d) { if (selectedId !== uid) return; detailData = d; drawRoute(); renderPanel(); })
+      .then(function (d) {
+        // 深链的 code@deep 占位 uid 可能已经被真实 uid 替换；只要还是同一车次就接收数据
+        if (!selectedId || selectedTrainCode !== code) return;
+        detailData = d; drawRoute(); renderPanel();
+      })
       .catch(function () {});
   }
   function closeDetail() {
@@ -963,6 +972,13 @@ button,input{font-family:inherit}
     if (wait <= 0) run(); else fetchTimer = setTimeout(run, wait);
   }
   function setTime(m, fromUser, align5, playbackTick) {
+    // 跨过 24:00 时把日期一起进/退位，不能只把时钟拨回 00:00
+    var dayShift = Math.floor(m / 1440);
+    if (dayShift) {
+      dateStr = shiftDate(dateStr, dayShift);
+      $('mapDate').value = dateStr;
+      $('replayDate').value = dateStr;
+    }
     minutes = ((m % 1440) + 1440) % 1440;
     if (align5) minutes = Math.floor(minutes * 12 + 1e-6) / 12;   // 对齐到 5 秒
     $('timeRange').value = minutes;
