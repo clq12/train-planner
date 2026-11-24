@@ -85,7 +85,7 @@ button,input{font-family:inherit}
 .legend .credit{color:var(--text3);line-height:1.5}
 .train-label{position:absolute;left:12px;top:-7px;background:rgba(255,255,255,.94);color:#0F2E36;border:1px solid rgba(15,46,54,.25);border-radius:4px;padding:0 3px;font-size:9px;font-weight:700;white-space:nowrap;pointer-events:none}
 .focus-arrow{pointer-events:none}
-.focus-arrow svg{will-change:transform}
+.focus-arrow svg{will-change:transform;transition:transform .18s linear;transform-origin:50% 50%}
 .leaflet-tooltip.radar-tip{font-size:11px;padding:4px 7px;border-radius:6px}
 #replayWrap{position:absolute;top:56px;bottom:0;left:0;right:0;display:none;flex-direction:column;z-index:999;background:var(--bg)}
 .replay-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--border);font-size:.78em;z-index:2}
@@ -600,8 +600,8 @@ button,input{font-family:inherit}
     return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
   }
 
-  var focusMarker = null, focusBearing = null;
-  function clearRoute() { routeLayer.clearLayers(); focusLayer.clearLayers(); focusMarker = null; focusBearing = null; }
+  var focusMarker = null, focusBearing = null, focusAngleAt = 0;
+  function clearRoute() { routeLayer.clearLayers(); focusLayer.clearLayers(); focusMarker = null; focusBearing = null; focusAngleAt = 0; }
 
   function updateFocusMarker() {
     var t = trainById.get(selectedId);
@@ -636,14 +636,15 @@ button,input{font-family:inherit}
     if (!focusMarker) return;
     focusMarker.setLatLng([gLat, gLon]);
     if (!isFinite(bearing)) return;
-    if (focusBearing == null) focusBearing = bearing;
-    else {
-      // 沿最短夹角做低通，去掉采样点切换时车头左右摆动的抖感
-      var delta = ((bearing - focusBearing + 540) % 360) - 180;
-      focusBearing = (focusBearing + delta * 0.35 + 360) % 360;
-    }
+    if (focusBearing == null) { focusBearing = bearing; focusAngleAt = 0; }
+    // 朝向只按 10fps 更新目标，交给 CSS transition 插值；逐帧改 rotate 会跟着采样点一起抖
+    var now = performance.now();
+    if (now - focusAngleAt < 100) return;
+    focusAngleAt = now;
+    var delta = ((bearing - focusBearing + 540) % 360) - 180;
+    focusBearing += delta;   // 保持连续角度，跨 0° 时 CSS 不会绕一大圈
     var svg = focusMarker.getElement() && focusMarker.getElement().querySelector('svg');
-    if (svg) svg.style.transform = 'rotate(' + focusBearing.toFixed(1) + 'deg)';
+    if (svg) svg.style.transform = 'rotate(' + focusBearing.toFixed(2) + 'deg)';
   }
   function centerOnSelected() {
     var t = trainById.get(selectedId); if (!t) return;
