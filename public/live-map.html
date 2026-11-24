@@ -24,17 +24,18 @@ button,input{font-family:inherit}
 .themes{display:flex;gap:3px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:2px}
 .themes button{border:0;background:transparent;color:var(--text2);border-radius:7px;padding:5px 9px;font-size:.74em;cursor:pointer}
 .themes button.on{background:var(--accent);color:#fff}
-.controls{position:absolute;top:66px;left:12px;right:12px;z-index:1000;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,.96);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:12px;padding:9px 11px;box-shadow:var(--shadow)}
+.controls{position:absolute;top:66px;left:12px;right:12px;z-index:1000;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;background:rgba(255,255,255,.96);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:12px;padding:9px 11px;box-shadow:var(--shadow)}
+.controls::-webkit-scrollbar{display:none}
 .controls input[type=text],.controls input[type=date]{border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-size:.8em;outline:none;background:var(--bg);color:var(--text)}
-.controls input[type=text]{width:190px}
-.controls input[type=date]{width:132px}
+.controls input[type=text]{width:115px}
+.controls input[type=date]{width:120px}
 .controls input:focus{border-color:var(--accent)}
-.controls label{font-size:.75em;color:var(--text2);display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
+.controls label{font-size:.75em;color:var(--text2);display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;white-space:nowrap;cursor:pointer;user-select:none}
 .controls input[type=checkbox]{accent-color:var(--accent);margin:0}
-#timeRange{flex:1 1 180px;min-width:140px;accent-color:var(--accent)}
+#timeRange{flex:1 1 120px;min-width:80px;accent-color:var(--accent)}
 .clock{font-variant-numeric:tabular-nums;font-weight:800;color:var(--accent);min-width:52px;font-size:.95em}
-.chips{display:flex;gap:4px;flex-wrap:wrap}
-.chip{border:1px solid var(--border);background:var(--bg);border-radius:20px;padding:4px 9px;font-size:.72em;cursor:pointer;color:var(--text2);white-space:nowrap}
+.chips{display:flex;gap:2px;flex:0 0 auto;flex-wrap:nowrap}
+.chip{border:1px solid var(--border);background:var(--bg);border-radius:5px;padding:3px 5px;font-size:.68em;cursor:pointer;color:var(--text2);white-space:nowrap}
 #map{position:absolute;top:56px;bottom:0;left:0;right:0;background:#E8F1F3}
 .theme-dark .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.88) contrast(.92) saturate(.75)}
 .theme-rail #map{background:#EDF3F5}
@@ -73,7 +74,7 @@ button,input{font-family:inherit}
 .controls select{border:1px solid var(--border);border-radius:8px;padding:6px 6px;font-size:.78em;background:var(--bg);color:var(--text);outline:none}
 .speed-wrap{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}
 .speed-cap{font-size:.72em;color:var(--text2);white-space:nowrap}
-.speed-wrap input[type=range]{width:118px;accent-color:var(--accent);margin:0}
+.speed-wrap input[type=range]{width:88px;accent-color:var(--accent);margin:0}
 .speed-val{font-size:.78em;font-weight:600;color:var(--accent);min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
 /* 固定宽度，字数变多时靠 JS 调小字号，避免控制栏换行跳动 */
 .rate-label{display:inline-flex;align-items:center;justify-content:center;flex:0 0 104px;width:104px;height:26px;box-sizing:border-box;color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 4px;background:rgba(15,118,110,.08);border-radius:6px;line-height:1}
@@ -258,6 +259,12 @@ button,input{font-family:inherit}
     center: [init.lat, init.lon], zoom: init.zoom, minZoom: 3, maxZoom: 17,
     zoomSnap: 0.01, zoomDelta: 0.5, attributionControl: true
   });
+  // Leaflet 默认 latLngToLayerPoint 会 _round() 成整数像素，SVG 圆点每帧不足 1px 的位移会被量化成跳格。
+  // 只针对CircleMarker保留亚像素投影，播放动画才能逐帧平滑移动。
+  L.CircleMarker.prototype._project = function () {
+    this._point = this._map.project(this._latlng)._subtract(this._map.getPixelOrigin());
+    this._updateBounds();
+  };
   var tileLayers = [], railLayer = null, railVisible = true;
   var trainRenderer = L.canvas({ padding: .25 }), stationRenderer = L.canvas({ padding: .2 });
   var trainLayer = L.layerGroup().addTo(map), labelLayer = L.layerGroup().addTo(map), stationLayer = L.layerGroup().addTo(map);
@@ -283,7 +290,7 @@ button,input{font-family:inherit}
   // 位置请求：最小间隔节流 + 单飞行，避免高速播放时 debounce 吞请求 / 高频请求饿死
   var fetchTimer = null, nextFetchAt = 0, fetching = false, fetchPending = false;
   // 播放：速度 N× = 每真实秒推进 N 个 5 秒步长（1×=5秒/秒，120×=10分钟/秒）
-  var speed = 1, playMs = 1000, animMs = 650, playRaf = 0, playLast = 0, playCarry = 0;
+  var speed = 1, playMs = 1000, animMs = 650, fetchGapMs = 250, playRaf = 0, playLast = 0, playCarry = 0;
   var hashTimer = null, detailData = null, detailTab = 'table';
   var followTrain = false;   // 视角跟随：地图中心跟随选中车次移动
   var animating = new Map(), rafId = 0, replayVisible = false;
@@ -384,7 +391,8 @@ button,input{font-family:inherit}
   function animateTick(ts) {
     animating.forEach(function (a, m) {
       var p = Math.min(1, (ts - a.start) / a.dur);
-      var e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      // 播放时用线性插值：每段匀速衔接，不会因为缓入缓出在高采样率下反复“顿一下”
+      var e = playing ? p : (p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
       m.setLatLng([a.from.lat + (a.to.lat - a.from.lat) * e, a.from.lng + (a.to.lng - a.from.lng) * e]);
       if (p >= 1) animating.delete(m);
     });
@@ -739,7 +747,7 @@ button,input{font-family:inherit}
     var wait = Math.max(0, nextFetchAt - Date.now());
     function run() {
       fetchTimer = null;
-      nextFetchAt = Date.now() + (playing ? Math.max(140, Math.min(playMs, 300)) : 150);
+      nextFetchAt = Date.now() + (playing ? fetchGapMs : 150);
       fetchTrains();
     }
     if (wait <= 0) run(); else fetchTimer = setTimeout(run, wait);
@@ -825,7 +833,10 @@ button,input{font-family:inherit}
   function applySpeed() {
     speed = SPEED_STEPS[+$('speedRange').value] || 1;
     playMs = 1000 / speed;                          // 一个 5 秒步长的真实耗时
-    animMs = Math.min(650, Math.round(playMs * 0.85));
+    // 高速播放时提高位置采样频率：1× 每 250ms，10× 每 90ms，20× 以上每 60ms
+    fetchGapMs = Math.max(speed >= 20 ? 60 : 90, Math.min(250, Math.round(playMs * 0.25)));
+    // 动画时长略长于采样间隔，位置还没走完就被下一样本接管，视觉上连续
+    animMs = Math.max(90, Math.min(650, Math.round(playMs * 0.85)));
     $('speedVal').textContent = speed + '×';
     var label = $('rateLabel'), txt = rateText(speed);
     label.textContent = txt;
