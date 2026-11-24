@@ -1398,7 +1398,10 @@ app.get('/api/rp/trains', async (req, res) => {
       if (!s) continue;
       const from = model.stations[r.t.st[s.i]], to = model.stations[r.t.st[s.j]];
       trains.push({
-        id: r.t.code, cls: r.t.cls,
+        id: r.t.code,
+        // 同车次可能有多趟在途（不同径路/日期），前端必须用 uid 做 marker key，否则点位互相抢
+        uid: r.t.code + '@' + r.t.ti + '@' + r.day,
+        cls: r.t.cls,
         lat: +s.lat.toFixed(6), lon: +s.lon.toFixed(6),
         bearing: Math.round(s.bearing), speed: Math.round(s.speed),
         moving: s.moving,

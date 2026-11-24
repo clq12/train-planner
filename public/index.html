@@ -1378,6 +1378,36 @@ function viewTrainOnMap(trainNo, depTime) {
   switchTab('live');
 }
 
+// 从换乘枢纽块跳到实时地图：同时画两段车次全程线路，并标出真正的换乘站
+function viewTransferOnMap(hubId) {
+  try { if (typeof closeModal === 'function') closeModal(); } catch (e) {}
+  var parts = String(hubId || '').split('_');
+  var s = _currentStrategies[parseInt(parts[1], 10)];
+  if (!s) return;
+  var r = (s.transferData || s.segData || [])[parseInt(parts[2], 10)];
+  if (!r || !r.leg1 || !r.leg2) return;
+
+  // 优先用用户在左右两列选中的车次；没选就用各组第一趟兜底
+  var state = _dualPanelState[hubId] || {};
+  var i1 = state.leg1;
+  if (_dualPanelOrigIdx[hubId] && i1 !== undefined) i1 = _dualPanelOrigIdx[hubId][i1];
+  var t1 = i1 !== undefined ? r.leg1[i1] : r.leg1[0];
+  var t2 = state.leg2 !== undefined ? r.leg2[state.leg2] : r.leg2[0];
+  if (!t1 || !t2 || !t1.trainNo || !t2.trainNo) return;
+
+  var date = document.getElementById('travelDate')?.value || '';
+  var time = /^\d{1,2}:\d{2}$/.test(t1.startTime || '') ? t1.startTime : '08:00';
+  // 真实换乘站可能跨站，第一段到达站 + 第二段出发站都传给地图
+  var via = [t1.toStation, t2.fromStation].filter(Boolean).join('/');
+  var hash = '#map=4/35.5/104&time=' + encodeURIComponent(time) +
+    '&date=' + encodeURIComponent(date) +
+    '&legs=' + encodeURIComponent(t1.trainNo + ',' + t2.trainNo) +
+    (via ? '&via=' + encodeURIComponent(via) : '');
+  var frame = document.getElementById('liveFrame');
+  if (frame) frame.src = '/live-map.html' + hash;
+  switchTab('live');
+}
+
 // ========== 出行日程浮层：不跳转整页，保留搜索结果 ==========
 function openItinerary(hash) {
   try { if (typeof closeModal === 'function') closeModal(); } catch (e) {}
@@ -2522,7 +2552,8 @@ function buildStrategyContent(idx, s) {
       var _hubStops = unionNames(_arrStops, _depStops);
       var _hubTitle = _hubStops.length ? stopLabel(_hubStops, 3) : r.hub;
       var _hubMixed = _hubStops.length > 1;
-      content += '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:6px">🔄 经 <span style="color:var(--accent)">'+escapeHTML(_hubTitle)+'</span> 换乘'+hubBadges+'</div>';
+      content += '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:6px">🔄 经 <span style="color:var(--accent)">'+escapeHTML(_hubTitle)+'</span> 换乘'+hubBadges
+        + '<button class="train-itinerary map-itinerary" style="margin-left:auto" onclick="viewTransferOnMap(\''+hubId+'\')">🗺️ 换乘地图</button></div>';
       content += '<div style="display:flex;align-items:center;gap:8px">';
       var r1WithTicket = r.leg1.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
       var r2WithTicket = r.leg2.filter(function(t){ return t.canBuy && hasTicket(t); }).length;
@@ -2940,7 +2971,8 @@ function refreshDualPanel(hubId) {
         + ' · 总耗时 <span style="font-weight:600;color:var(--accent3)">'+fmtMinutes(totalDur)+'</span>'
         + ' · 总花费 <span style="font-weight:600;color:var(--accent)">'+pricePfx+totalPrice+'</span>'
         + arriveDayText
-        + warn + crossWarn;
+        + warn + crossWarn
+        + ' <button class="train-itinerary map-itinerary" onclick="viewTransferOnMap(\'' + hubId + '\')">🗺️ 看这两段</button>';
     } else if (t1) {
       // 只选了 leg1，提示选择 leg2
       summaryEl.style.display = '';

@@ -219,6 +219,11 @@ button,input{font-family:inherit}
     if (th && THEME_TILES[th[1]]) init.theme = th[1];
     var tr = raw.match(/train=([^&]+)/);
     if (tr) { try { init.train = decodeURIComponent(tr[1]).toUpperCase(); } catch (e) { init.train = tr[1].toUpperCase(); } }
+    // 换乘方案：legs=车次1,车次2 同时画两段线路；via=换乘站名
+    var lg = raw.match(/legs=([^&]+)/);
+    if (lg) init.legs = lg[1].split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean);
+    var vi = raw.match(/via=([^&]+)/);
+    if (vi) init.via = vi[1];
   })();
   init.zoom = Math.max(3, Math.min(12, init.zoom));
 
@@ -230,6 +235,9 @@ button,input{font-family:inherit}
   var trainRenderer = L.canvas({ padding: .25 }), stationRenderer = L.canvas({ padding: .2 });
   var trainLayer = L.layerGroup().addTo(map), labelLayer = L.layerGroup().addTo(map), stationLayer = L.layerGroup().addTo(map);
   var routeLayer = L.layerGroup().addTo(map), focusLayer = L.layerGroup().addTo(map);
+  // 换乘方案线路单独一层：关闭车次详情时只清 routeLayer，不影响换乘地图的两段线路
+  var transferLayer = L.layerGroup().addTo(map);
+  var transferMode = false;
   var trains = [], trainById = new Map(), markers = new Map(), stations = [], selectedId = null;
   var query = '', activeTypes = {}, labelsOn = false, stationsOn = true;
   var minutes = init.minutes, dateStr = init.date, theme = init.theme;
@@ -294,7 +302,9 @@ button,input{font-family:inherit}
     var c = map.getCenter();
     var h = '#map=' + map.getZoom().toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4) +
       '&time=' + clockText(minutes) + '&date=' + dateStr + '&theme=' + theme +
-      (init.train ? '&train=' + encodeURIComponent(init.train) : '');
+      (init.train ? '&train=' + encodeURIComponent(init.train) : '') +
+      (init.legs && init.legs.length ? '&legs=' + encodeURIComponent(init.legs.join(',')) : '') +
+      (init.via ? '&via=' + encodeURIComponent(init.via) : '');
     try { history.replaceState(null, '', h); } catch (e) {}
   }
 
@@ -323,6 +333,10 @@ button,input{font-family:inherit}
     }
     var from = m.getLatLng();
     if (Math.abs(from.lat - lat) < 1e-9 && Math.abs(from.lng - lon) < 1e-9) return;
+    // 防御：单帧坐标跳变超过 2° 视为异常（或同车次不同径路），直接归位，不做跨屏飞行
+    if (Math.abs(from.lat - lat) > 2 || Math.abs(from.lng - lon) > 2) {
+      animating.delete(m); m.setLatLng(to); return;
+    }
     animating.set(m, { from: from, to: to, start: performance.now(), dur: animMs });
   }
   function animateTick(ts) {
@@ -341,14 +355,15 @@ button,input{font-family:inherit}
     for (var i = 0; i < list.length; i++) {
       var t = list[i];
       if (!isFinite(t.lat) || !isFinite(t.lon)) continue;
-      seen.add(t.id); trainById.set(t.id, t);
-      var m = markers.get(t.id);
+      var uid = t.uid || t.id;                  // 同车次多趟在途时必须按 uid 建 marker
+      seen.add(uid); trainById.set(uid, t);
+      var m = markers.get(uid);
       var p = wgs2gcj(t.lon, t.lat);
       if (m) moveMarker(m, p[1], p[0], true);
       else {
-        m = iconFor(t, t.id === selectedId);
-        m.on('click', function () { selectTrain(this._tid); });
-        m._tid = t.id; markers.set(t.id, m);
+        m = iconFor(t, uid === selectedId);
+        m.on('click', function () { selectTrain(this._uid); });
+        m._uid = uid; markers.set(uid, m);
       }
       if (matches(t)) { if (!trainLayer.hasLayer(m)) trainLayer.addLayer(m); }
       else if (trainLayer.hasLayer(m)) trainLayer.removeLayer(m);
@@ -358,12 +373,14 @@ button,input{font-family:inherit}
     drawLabels();
     if (selectedId) updateFocusMarker();
     var st = $('status'); st.classList.remove('warn');
-    st.textContent = '● ' + list.length + ' 列在途 · ' + clockText(minutes);
+    st.textContent = (transferMode
+      ? '● 换乘线路：' + (init.legs || []).join(' → ') + ' · '
+      : '● ') + list.length + ' 列在途 · ' + clockText(minutes);
   }
   function applyFilter() {
     var shown = 0;
     for (var i = 0; i < trains.length; i++) {
-      var t = trains[i], m = markers.get(t.id); if (!m) continue;
+      var t = trains[i], m = markers.get(t.uid || t.id); if (!m) continue;
       if (matches(t)) { trainLayer.addLayer(m); shown++; } else trainLayer.removeLayer(m);
     }
     drawLabels();
@@ -526,11 +543,12 @@ button,input{font-family:inherit}
     $('openYupiao').onclick = function () { openReplayFor(t.id); };
   }
 
-  function selectTrain(id) {
-    var t = trainById.get(id); if (!t) return;
-    selectedId = id; selectedTrainCode = id; detailData = null; detailTab = 'table';
+  function selectTrain(uid) {
+    var t = trainById.get(uid); if (!t) return;
+    var code = t.id;                            // 车次号只用于详情接口 / 深链 / 余票回放
+    selectedId = uid; selectedTrainCode = code; detailData = null; detailTab = 'table';
     markers.forEach(function (m, key) {
-      var sel = key === id;
+      var sel = key === uid;
       m.setStyle({ color: sel ? '#F59E0B' : '#fff', weight: sel ? 2.5 : .8, fillOpacity: sel ? 1 : .92 });
       m.setRadius(sel ? 7 : (map.getZoom() >= 8 ? 4.5 : 3.4));
     });
@@ -538,14 +556,19 @@ button,input{font-family:inherit}
     if (!map.getBounds().contains([p[1], p[0]])) map.panTo([p[1], p[0]]);
     $('detail').style.display = '';
     renderPanel(); updateFocusMarker();
-    if (detailData && detailData.id === id) { drawRoute(); renderPanel(); return; }
-    fetch(API + '/train/' + encodeURIComponent(id) + '?date=' + dateStr)
+    if (detailData && detailData.id === code) { drawRoute(); renderPanel(); return; }
+    fetch(API + '/train/' + encodeURIComponent(code) + '?date=' + dateStr)
       .then(function (r) { return r.json(); })
-      .then(function (d) { if (selectedId !== id) return; detailData = d; drawRoute(); renderPanel(); })
+      .then(function (d) { if (selectedId !== uid) return; detailData = d; drawRoute(); renderPanel(); })
       .catch(function () {});
   }
   function closeDetail() {
     selectedId = null; selectedTrainCode = null; detailData = null;
+    // 复位所有 marker 的选中样式，避免关闭后仍有车保持橙色大圆点
+    markers.forEach(function (m) {
+      m.setStyle({ color: '#fff', weight: .8, fillOpacity: .92 });
+      m.setRadius(map.getZoom() >= 8 ? 4.5 : 3.4);
+    });
     $('detail').style.display = 'none'; clearRoute(); applyFilter();
   }
   map.on('click', function () { if (selectedId) closeDetail(); });
@@ -561,17 +584,70 @@ button,input{font-family:inherit}
         if (!d.stops || !d.stops.length) return;
         var first = d.stops[0], last = d.stops[d.stops.length - 1];
         var mid = d.stops[Math.floor(d.stops.length / 2)] || first;
-        trainById.set(code, {
-          id: code, cls: d.cls || 'O', from: first.name, to: last.name,
+        var uid = code + '@deep';
+        trainById.set(uid, {
+          id: code, uid: uid, cls: d.cls || 'O', from: first.name, to: last.name,
           lat: mid.lat != null ? mid.lat : first.lat,
           lon: mid.lon != null ? mid.lon : first.lon,
           bearing: 0, speed: 0, moving: true
         });
         detailData = d;
-        selectTrain(code);
+        selectTrain(uid);
         var pts = (d.path || []).map(function (p) { var q = wgs2gcj(p[0], p[1]); return [q[1], q[0]]; });
         if (pts.length) map.flyToBounds(pts, { padding: [70, 70], maxZoom: 10, duration: .8 });
       }).catch(function () {});
+  }
+
+  // 换乘方案：同时画两段车次的全程线路，并高亮真正的换乘站
+  function openDeepLinkedLegs() {
+    var codes = init.legs || [];
+    if (codes.length < 2) return;
+    var colors = ['#2563EB', '#DC2626', '#7C3AED', '#059669'];
+    var viaNames = (init.via || '').split(/[\/、,，\s]+/).filter(Boolean);
+    transferMode = true;
+    Promise.all(codes.map(function (code) {
+      return fetch(API + '/train/' + encodeURIComponent(code) + '?date=' + dateStr)
+        .then(function (r) { return r.json(); })
+        .catch(function () { return null; });
+    })).then(function (datas) {
+      transferLayer.clearLayers();
+      var allPts = [], stopHits = [];
+      datas.forEach(function (d, i) {
+        if (!d || !Array.isArray(d.path) || !d.path.length) return;
+        var pts = d.path.map(function (p) { var q = wgs2gcj(p[0], p[1]); return [q[1], q[0]]; });
+        allPts = allPts.concat(pts);
+        var col = colors[i % colors.length];
+        L.polyline(pts, { renderer: L.canvas(), color: '#FFFFFF', weight: 9, opacity: .8, interactive: false }).addTo(transferLayer);
+        L.polyline(pts, { renderer: L.canvas(), color: col, weight: 5, opacity: .95, interactive: false })
+          .bindTooltip(codes[i] + ' 全程线路', { className: 'radar-tip' }).addTo(transferLayer);
+        (d.stops || []).forEach(function (s) {
+          if (s.lat == null || !viaNames.length) return;
+          if (viaNames.some(function (n) { return s.name === n || s.name.indexOf(n) >= 0; }))
+            stopHits.push({ name: s.name, lat: s.lat, lon: s.lon });
+        });
+      });
+      // 换乘站优先取两段车次真实停靠点；没有再用全局站点表兜底
+      var hits = [];
+      stopHits.forEach(function (s) {
+        if (!hits.some(function (h) { return h.name === s.name; })) hits.push(s);
+      });
+      if (!hits.length && stations.length) {
+        hits = stations.filter(function (s) {
+          return viaNames.some(function (n) { return s.name === n || s.name.indexOf(n) >= 0; });
+        }).slice(0, 4);
+      }
+      hits.forEach(function (s) {
+        var q = wgs2gcj(s.lon, s.lat);
+        L.circleMarker([q[1], q[0]], {
+          radius: 9, color: '#FFFFFF', weight: 3, fillColor: '#F59E0B', fillOpacity: 1
+        }).bindTooltip('🔄 换乘站：' + esc(s.name), {
+          direction: 'top', className: 'radar-tip', permanent: true, offset: [0, -10]
+        }).addTo(transferLayer);
+      });
+      if (allPts.length) map.flyToBounds(allPts, { padding: [60, 60], maxZoom: 9, duration: .8 });
+      $('status').textContent = '● 换乘线路：' + codes.join(' → ') +
+        (hits.length ? ' · 换乘站 ' + hits.map(function (h) { return h.name; }).join('/') : '');
+    });
   }
 
   function fetchTrains() {
@@ -734,7 +810,8 @@ button,input{font-family:inherit}
   setTheme(theme);
   loadLines(); loadStations();
   if (/time=/.test(location.hash)) fetchTrains(); else startLive();
-  if (init.train) openDeepLinkedTrain();
+  if (init.legs && init.legs.length >= 2) openDeepLinkedLegs();
+  else if (init.train) openDeepLinkedTrain();
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && playTimer) { clearInterval(playTimer); playTimer = null; nextFetchAt = 0; playing = false; $('playBtn').textContent = '▶ 播放'; $('playBtn').classList.remove('on'); }
   });
