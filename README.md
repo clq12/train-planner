@@ -163,6 +163,18 @@ D197  +1  15:05 → 00:25 +2
 
 分段行程和当地时间的交互参考了 [TREK 的交通行程](https://github.com/liketrek/TREK/blob/main/wiki/Transport-Flights-Trains-Cars.md)，未复制 TREK 源码。
 
+### 🗺️ 全国列车实时地图（三站数据融合）
+
+首页第四个标签「实时地图」内嵌 `/live-map.html`，也可直接全屏打开。把三个站点的能力拼到同一张图里：
+
+| 来源 | 融合进来的能力 |
+|---|---|
+| [中国列车雷达](https://cntrainradar.graymammoth.com/) | `/api/trains` 的在途列车位置、速度、方向、当前/下一站；`/data/railways.json` 全国路网；`/api/train/:id` 停站详情 |
+| [铁路全景](https://linkboyx.github.io/railway-panorama/) | 全国站点数据（取热度前 900 个），用于站点图层与站名搜索定位 |
+| [余票.info](https://www.yupiao.info/) | 「时刻回放」模式：把当前地图视野、日期和时刻写进余票站的 URL hash，按 12306 时刻表回看任意时间的列车分布 |
+
+实现要点：WGS-84 坐标统一转 GCJ-02 后叠加高德瓦片；列车用 Canvas 渲染（上万列车也不会卡死 DOM），车次号标签只在 z≥7 且限量 220 个；服务端 `/api/live/*` 按 TTL 缓存并中转第三方数据（浏览器直连会被 CORS / X-Frame-Options 拦住），前端无第三方 key、无广告。列车位置是按时刻表推算的结果，非 12306 官方实时数据，仅作参考。
+
 ---
 
 ## 🚀 快速开始
@@ -294,6 +306,11 @@ location / {
 | `GET /api/transfer?from=&to=&date=` | 中转换乘（NDJSON 流式返回）；`&transferStation=` 指定中转站（车站代码或中文名，自动补同城备选），`&days=` / `&gapH=` 调整检索窗口，`&allHubs=1` 查全部枢纽 |
 | `GET /api/schedule?trainNo=&date=&fromCode=&toCode=` | 某趟车在某区间的时刻表 |
 | `GET /api/schedule-by-no?trainNo=&date=` | 按车次号反查全程时刻表 |
+| `GET /api/live/trains` | 在途列车实时位置（中转自中国列车雷达，缓存 10 秒） |
+| `GET /api/live/meta` | 全部车次的线路与起终站（缓存 10 分钟） |
+| `GET /api/live/railways` | 全国铁路线 GeoJSON（缓存 6 小时） |
+| `GET /api/live/stations` | 全国站点（中转自铁路全景，缓存 24 小时） |
+| `GET /api/live/train/:id` | 单趟车的停站时刻与经纬度（缓存 30 秒） |
 | `GET /api/cookie-status` | 当前生效的 cookie 名（不返回值） |
 | `GET /api/health` | 健康检查 |
 | `GET /admin` | 管理设置页（调整检索天数与等待上限，存当前浏览器） |
@@ -372,6 +389,10 @@ train-planner/
 ---
 
 ## 📌 版本历史
+
+### v1.4.0 (2026-11-24)
+- **新增「实时地图」标签页**：融合中国列车雷达的实时位置/全国路网、铁路全景的站点数据、余票.info 的时刻表回放；新增独立页 `/live-map.html` 与 5 个 `/api/live/*` 中转缓存接口
+- 地图用 Canvas 渲染上万列车，支持车次/车站搜索、车型筛选、车次号标签、站点定位、停站详情，并把当前视野同步给余票站做时刻回放
 
 ### v1.3.19 (2026-11-10)
 - **修复第二段到达徽标少算一天**：`+1` 天发车、车程又隔夜时，到达标记原先只按「本段发车日」显示 `+1`，与发车的 `+1` 并列容易被误读成第二天到。现在到达徽标统一按「相对整个行程出发日」的绝对天数显示（`+2`）

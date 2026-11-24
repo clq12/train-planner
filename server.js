@@ -1296,6 +1296,68 @@ app.get('/api/schedule', async (req, res) => {
   }
 });
 
+// ========== 实时地图：第三方数据代理 ==========
+// 浏览器直连第三方站点会被 CORS / X-Frame-Options 拦住，这里由服务端中转并按 TTL 缓存，
+// 同时避免每个客户端都去拉 1.9 MB 的全国路网。上游挂掉时前端会降级到内置数据。
+const LIVE_RADAR = 'https://cntrainradar.graymammoth.com';
+const LIVE_PANORAMA = 'https://linkboyx.github.io/railway-panorama';
+const liveCache = new Map();
+
+async function liveJson(url, ttlMs) {
+  const now = Date.now();
+  const hit = liveCache.get(url);
+  if (hit && hit.expires > now) return hit.data;
+  if (hit && hit.pending) return hit.pending;
+  const pending = (async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const r = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': UA, Accept: 'application/json,*/*' },
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      liveCache.set(url, { data, expires: Date.now() + ttlMs });
+      if (liveCache.size > 40) liveCache.delete(liveCache.keys().next().value);
+      return data;
+    } catch (err) {
+      liveCache.delete(url);
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  liveCache.set(url, { pending });
+  return pending;
+}
+
+function liveEndpoint(route, url, ttlMs) {
+  app.get(route, async (req, res) => {
+    try {
+      const data = await liveJson(url, ttlMs);
+      res.set('Cache-Control', `public, max-age=${Math.floor(ttlMs / 1000)}`).json(data);
+    } catch (err) {
+      res.status(502).json({ status: 1, error: '上游数据暂不可用', detail: err.message });
+    }
+  });
+}
+
+liveEndpoint('/api/live/meta', LIVE_RADAR + '/api/meta', 10 * 60 * 1000);
+liveEndpoint('/api/live/trains', LIVE_RADAR + '/api/trains', 10 * 1000);
+liveEndpoint('/api/live/railways', LIVE_RADAR + '/data/railways.json', 6 * 60 * 60 * 1000);
+liveEndpoint('/api/live/stations', LIVE_PANORAMA + '/data/stations.json', 24 * 60 * 60 * 1000);
+app.get('/api/live/train/:id', async (req, res) => {
+  const id = String(req.params.id || '').toUpperCase();
+  if (!/^[A-Z0-9]{1,8}$/.test(id)) return res.status(400).json({ status: 1, error: '车次格式不正确' });
+  try {
+    const data = await liveJson(`${LIVE_RADAR}/api/train/${encodeURIComponent(id)}`, 30 * 1000);
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ status: 1, error: '未取到该车次详情', detail: err.message });
+  }
+});
+
 // ========== 健康检查 ==========
 app.get('/api/health', (req, res) => {
   res.json({

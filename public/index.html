@@ -69,6 +69,14 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .tab{flex:1;text-align:center;padding:9px;border-radius:8px;font-size:.82em;font-weight:500;cursor:pointer;color:var(--text2);transition:all .2s}
 .tab.active{background:var(--accent);color:#fff}
 .tab:hover:not(.active){background:var(--card-hover);color:var(--text)}
+/* 实时地图：内嵌独立地图页，保持主站原有样式与脚本互不干扰 */
+.live-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow-md)}
+.live-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--card2);flex-wrap:wrap}
+.live-panel-head b{font-size:.95em}
+.live-panel-head span{font-size:.75em;color:var(--text2)}
+.live-panel-head a{color:var(--accent);font-size:.78em;text-decoration:none;border-bottom:1px dashed var(--border)}
+.live-frame{display:block;width:100%;height:min(78vh,880px);min-height:560px;border:0;background:var(--bg)}
+@media(max-width:640px){.live-frame{height:72vh;min-height:480px}.tab{font-size:.74em;padding:8px 2px}}
 
 .strategies{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
 .strat-tag{padding:4px 11px;border-radius:14px;font-size:.75em;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text2);transition:all .2s}
@@ -669,6 +677,7 @@ body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
     <div class="tab active" onclick="switchTab('direct')">🚄 直达车次</div>
     <div class="tab" onclick="switchTab('strategy')">🧠 多策略方案</div>
     <div class="tab" onclick="switchTab('schedule')">📋 时刻表查询</div>
+    <div class="tab" onclick="switchTab('live')">🗺️ 实时地图</div>
   </div>
 
   <div id="tabDirect">
@@ -733,6 +742,16 @@ body:not(.two-col) .time-arrow .dots{justify-content:space-between;width:100%}
       </div>
     </div>
     <div id="scheduleResult"></div>
+  </div>
+
+  <div id="tabLive" style="display:none">
+    <div class="live-panel">
+      <div class="live-panel-head">
+        <div><b>🗺️ 全国列车实时地图</b><br><span>实时位置 · 全国路网 · 站点查询 · 时刻回放，数据每 10 秒刷新</span></div>
+        <a href="/live-map.html" target="_blank" rel="noopener">↗ 全屏打开地图</a>
+      </div>
+      <iframe id="liveFrame" class="live-frame" title="全国列车实时地图" loading="lazy"></iframe>
+    </div>
   </div>
 </div>
 
@@ -870,12 +889,17 @@ function swapStations() {
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach((t,i) => {
-    const tabs = ['direct','strategy','schedule'];
+    const tabs = ['direct','strategy','schedule','live'];
     t.classList.toggle('active', tabs[i]===tab);
   });
   document.getElementById('tabDirect').style.display = tab==='direct'?'':'none';
   document.getElementById('tabStrategy').style.display = tab==='strategy'?'':'none';
   document.getElementById('tabSchedule').style.display = tab==='schedule'?'':'none';
+  document.getElementById('tabLive').style.display = tab==='live'?'':'none';
+  if (tab==='live') {
+    var f = document.getElementById('liveFrame');
+    if (f && !f.src) f.src = '/live-map.html';
+  }
 }
 
 // ========== Progress ==========
