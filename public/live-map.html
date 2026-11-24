@@ -214,6 +214,8 @@ button,input{font-family:inherit}
     if (d) init.date = d[1];
     var th = raw.match(/theme=(\w+)/);
     if (th && THEME_TILES[th[1]]) init.theme = th[1];
+    var tr = raw.match(/train=([^&]+)/);
+    if (tr) { try { init.train = decodeURIComponent(tr[1]).toUpperCase(); } catch (e) { init.train = tr[1].toUpperCase(); } }
   })();
   init.zoom = Math.max(3, Math.min(12, init.zoom));
 
@@ -286,7 +288,8 @@ button,input{font-family:inherit}
   function writeHash() {
     var c = map.getCenter();
     var h = '#map=' + map.getZoom().toFixed(2) + '/' + c.lat.toFixed(4) + '/' + c.lng.toFixed(4) +
-      '&time=' + clockText(minutes) + '&date=' + dateStr + '&theme=' + theme;
+      '&time=' + clockText(minutes) + '&date=' + dateStr + '&theme=' + theme +
+      (init.train ? '&train=' + encodeURIComponent(init.train) : '');
     try { history.replaceState(null, '', h); } catch (e) {}
   }
 
@@ -513,6 +516,7 @@ button,input{font-family:inherit}
     if (!map.getBounds().contains([p[1], p[0]])) map.panTo([p[1], p[0]]);
     $('detail').style.display = '';
     renderPanel(); updateFocusMarker();
+    if (detailData && detailData.id === id) { drawRoute(); renderPanel(); return; }
     fetch(API + '/train/' + encodeURIComponent(id) + '?date=' + dateStr)
       .then(function (r) { return r.json(); })
       .then(function (d) { if (selectedId !== id) return; detailData = d; drawRoute(); renderPanel(); })
@@ -524,6 +528,29 @@ button,input{font-family:inherit}
   }
   map.on('click', function () { if (selectedId) closeDetail(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && selectedId) closeDetail(); });
+
+  // 深链：/live-map.html#...&train=G1 —— 不依赖该车此刻在途，也能画出全程线路
+  function openDeepLinkedTrain() {
+    var code = init.train;
+    if (!code) return;
+    fetch(API + '/train/' + encodeURIComponent(code) + '?date=' + dateStr)
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.stops || !d.stops.length) return;
+        var first = d.stops[0], last = d.stops[d.stops.length - 1];
+        var mid = d.stops[Math.floor(d.stops.length / 2)] || first;
+        trainById.set(code, {
+          id: code, cls: d.cls || 'O', from: first.name, to: last.name,
+          lat: mid.lat != null ? mid.lat : first.lat,
+          lon: mid.lon != null ? mid.lon : first.lon,
+          bearing: 0, speed: 0, moving: true
+        });
+        detailData = d;
+        selectTrain(code);
+        var pts = (d.path || []).map(function (p) { var q = wgs2gcj(p[0], p[1]); return [q[1], q[0]]; });
+        if (pts.length) map.flyToBounds(pts, { padding: [70, 70], maxZoom: 10, duration: .8 });
+      }).catch(function () {});
+  }
 
   function fetchTrains() {
     var seq = ++fetchSeq;
@@ -669,6 +696,7 @@ button,input{font-family:inherit}
   setTheme(theme);
   loadLines(); loadStations();
   if (/time=/.test(location.hash)) fetchTrains(); else startLive();
+  if (init.train) openDeepLinkedTrain();
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && playTimer) { clearInterval(playTimer); playTimer = null; playing = false; $('playBtn').textContent = '▶ 播放'; }
   });

@@ -30,6 +30,8 @@ body{font-family:-apple-system,'PingFang SC','Microsoft YaHei','Segoe UI',sans-s
 .itinerary-link{display:inline-block;margin-top:10px;color:var(--accent);font-size:.84em;font-weight:600;text-underline-offset:3px}
 .train-itinerary{padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--accent);font-size:.75em;text-decoration:none}
 .train-itinerary:hover{border-color:var(--accent)}
+.map-itinerary{cursor:pointer;background:rgba(15,118,110,.08);border-color:rgba(15,118,110,.35);font-family:inherit}
+.map-itinerary:hover{background:rgba(15,118,110,.16)}
 
 .search-panel{background:var(--card);border-radius:14px;padding:20px;margin-bottom:16px;border:1px solid var(--border)}
 .search-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
@@ -1342,6 +1344,19 @@ function itineraryTrainLink(train) {
   }
 }
 
+// 从车次搜索结果 / 时刻表跳转到实时地图，并让地图自动选中这趟车、高亮全程线路
+function viewTrainOnMap(trainNo, depTime) {
+  if (!trainNo) return;
+  try { if (typeof closeModal === 'function') closeModal(); } catch (e) {}
+  const date = document.getElementById('travelDate')?.value || '';
+  const time = /^\d{1,2}:\d{2}$/.test(depTime || '') ? depTime : '08:00';
+  const hash = '#map=4/35.5/104&time=' + encodeURIComponent(time) +
+    '&date=' + encodeURIComponent(date) + '&train=' + encodeURIComponent(trainNo);
+  const frame = document.getElementById('liveFrame');
+  if (frame) frame.src = '/live-map.html' + hash;
+  switchTab('live');
+}
+
 function trainCardHTML(t, idx) {
   const tp = trainType(t.trainNo);
   const tl = {g:'高铁',d:'动车',k:'快速',z:'直达',t:'特快'}[tp]||'其他';
@@ -1391,6 +1406,7 @@ function trainCardHTML(t, idx) {
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         ${itineraryTrainLink(t)}
+        <button class="train-itinerary map-itinerary" onclick="event.stopPropagation();viewTrainOnMap('${escapeHTML(t.trainNo)}','${escapeHTML(t.startTime)}')">🗺️ 地图线路</button>
         <button onclick="event.stopPropagation();showScheduleModal('${escapeHTML(t.trainCode)}','${escapeHTML(t.fromStationCode)}','${escapeHTML(t.toStationCode)}','${escapeHTML(t.trainNo)}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">📋 时刻表</button>
         <button onclick="event.stopPropagation();showBuyLong('${escapeHTML(t.trainNo)}','${escapeHTML(t.trainCode)}')" style="padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-size:.75em;cursor:pointer">🎯 买长乘短</button>
       </div>
@@ -1424,7 +1440,10 @@ async function showScheduleModal(trainCode, fromCode, toCode, trainNo) {
             <td class="tt-time">${s.isEnd?'---':escapeHTML(s.startTime)}</td>
             <td>${s.isStart||s.isEnd?'---':(s.stopoverTime||'---')}</td>
           </tr>`).join('')}</tbody>
-        </table>`;
+        </table>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+          <button class="train-itinerary map-itinerary" onclick="viewTrainOnMap('${escapeHTML(trainNo)}','${escapeHTML(d.data[0].startTime || d.data[0].arriveTime || '08:00')}')">🗺️ 在实时地图看全程线路</button>
+        </div>`;
     } else {
       c.innerHTML = `<button class="modal-close" onclick="closeModal()">✕</button>
         <h2>📋 ${trainNo} 时刻表</h2>
@@ -1477,6 +1496,9 @@ function renderScheduleResult(el, trainNo, stops) {
           <td>${s.isStart||s.isEnd?'---':(s.stopoverTime||'---')}</td>
         </tr>`).join('')}</tbody>
       </table>
+      <div style="margin-top:10px">
+        <button class="train-itinerary map-itinerary" onclick="viewTrainOnMap('${escapeHTML(trainNo)}','${escapeHTML(stops[0].startTime || stops[0].arriveTime || '08:00')}')">🗺️ 在实时地图看全程线路</button>
+      </div>
     </div>`;
 }
 
