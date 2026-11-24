@@ -223,7 +223,9 @@ button,input{font-family:inherit}
 
   // 兼容用户给的两种 hash：#map=z/lat/lon 与 #time=HH:MM&@lat,lon,z
   var init = { zoom: 4, lat: 35.5, lon: 104, minutes: 480, date: beijingDate(), theme: 'standard' };
-  (function parseHash() {
+  function parseHash() {
+    // 每次重解析先清掉旧深链字段，避免从「车次」切到「换乘」时残留
+    delete init.train; delete init.legs; delete init.via;
     var raw = decodeURIComponent(location.hash.replace(/^#/, ''));
     if (!raw) return;
     var m = raw.match(/map=([0-9.]+)\/(-?[0-9.]+)\/(-?[0-9.]+)/);
@@ -243,7 +245,8 @@ button,input{font-family:inherit}
     if (lg) init.legs = lg[1].split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean);
     var vi = raw.match(/via=([^&]+)/);
     if (vi) init.via = vi[1];
-  })();
+  }
+  parseHash();
   init.zoom = Math.max(3, Math.min(12, init.zoom));
 
   var map = L.map('map', {
@@ -868,11 +871,34 @@ button,input{font-family:inherit}
   document.querySelector('.brand').onclick = closeReplay;
   document.querySelector('.brand').style.cursor = 'pointer';
 
+  // 应用深链：切换车次/换乘方案时先清掉上一次的详情与线路
+  function applyDeepLink(clearFirst) {
+    if (clearFirst) {
+      if (selectedId) closeDetail();
+      transferLayer.clearLayers();
+      transferMode = false;
+      clearRoute();
+    }
+    if (init.legs && init.legs.length >= 2) openDeepLinkedLegs();
+    else if (init.train) openDeepLinkedTrain();
+  }
   setTheme(theme);
   loadLines(); loadStations();
   if (/time=/.test(location.hash)) fetchTrains(); else startLive();
-  if (init.legs && init.legs.length >= 2) openDeepLinkedLegs();
-  else if (init.train) openDeepLinkedTrain();
+  applyDeepLink(false);
+
+  // iframe 只改 hash 时浏览器不会重载文档：监听 hashchange 重新解析并应用
+  window.addEventListener('hashchange', function () {
+    parseHash();
+    init.zoom = Math.max(3, Math.min(12, init.zoom));
+    map.setView([init.lat, init.lon], init.zoom, { animate: false });
+    dateStr = init.date; $('mapDate').value = dateStr; $('replayDate').value = dateStr;
+    if (theme !== init.theme) setTheme(init.theme);
+    setTime(init.minutes, false);
+    fetchTrains();
+    applyDeepLink(true);
+  });
+
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && playing) stopPlay();
   });
